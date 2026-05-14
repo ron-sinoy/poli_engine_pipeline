@@ -6,9 +6,11 @@ from modules.fetch_thread_list import fetch_threads_list
 from modules.generate_llm_response import generate_llm_response
 from modules.progress_log import describe_payload, log_step
 from modules.read_text_file import read_text_file
+from specific_modules.resolve_missing_threads import resolve_missing_threads
 
 
-PROMPT1_PATH = Path("prompts/prompt1.txt")
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+PROMPT1_PATH = WORKSPACE_ROOT / "prompts" / "prompt1.txt"
 
 
 def classify_gold_level_data(silver_level_data: Any) -> dict[str, Any]:
@@ -25,14 +27,26 @@ def classify_gold_level_data(silver_level_data: Any) -> dict[str, Any]:
         _build_prompt(prompt_template, threads_list, silver_level_data)
     )
     classification = llm_result.get("parsed_json")
+    _validate_classification_payload(classification, llm_result.get("raw_text", ""))
+    resolved_threads_list = threads_list
+    created_threads: list[dict[str, Any]] = []
+    resolution = resolve_missing_threads(
+        classification,
+        silver_level_data,
+        threads_list,
+    )
+    classification = resolution["classification"]
+    resolved_threads_list = resolution["threads_list"]
+    created_threads = resolution["created_threads"]
     log_step(
         "First gold LLM call completed with classification "
         f"{describe_payload(classification)}."
     )
 
     return {
-        "threads_list_snapshot": threads_list,
+        "threads_list_snapshot": resolved_threads_list,
         "silver_level_data": silver_level_data,
+        "created_threads": created_threads,
         "thread_ids": _extract_thread_ids(classification),
         "classification": classification,
         "classification_raw_text": llm_result.get("raw_text", ""),
@@ -75,3 +89,15 @@ def _collect_thread_ids(classification: Any, collected_ids: list[Any]) -> None:
     elif isinstance(classification, list):
         for item in classification:
             _collect_thread_ids(item, collected_ids)
+
+
+def _validate_classification_payload(classification: Any, raw_text: str) -> None:
+    if isinstance(classification, list):
+        return
+
+    raw_excerpt = raw_text.strip().replace("\n", " ")[:300]
+    raise ValueError(
+        "Prompt1 Gemini response did not parse into the expected JSON array. "
+        f"Parsed shape: {describe_payload(classification)}. "
+        f"Raw text excerpt: {raw_excerpt!r}"
+    )

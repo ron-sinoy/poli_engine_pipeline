@@ -1,10 +1,10 @@
-compare with cache details and find which all persons are involved in the given content and find their person_id from cache
-paraphrase content of all objects of json
-then return a json in format, remove everything else
+1. compare with cache details and find which all persons are involved in the given content and find their person_id from cache
+2. paraphrase content of all objects of json 
+3. then return JSON only as a top-level array in the format below, remove everything else
 paraphrazing should be malayalam
 
-Returning nothing other than, this 
-
+4. Return nothing other than this exact top-level structure. Do not wrap it in an object. Do not add explanations. Do not add markdown.
+5. most importantly, current content should not be a duplicate or a paraphrase of any content in the given thread with corresponding thread id.
 [
     {
 "thread_id": #from input,

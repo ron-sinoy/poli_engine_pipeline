@@ -10,7 +10,7 @@ MATHRUBHUMI_BASE_URL = "https://www.mathrubhumi.com"
 
 
 def post_final_gold_incidents(final_gold_data: Any, base_url: str = BACKEND_BASE_URL) -> list[Any]:
-    """Post each incident from final_gold_data['final_response'] to the backend."""
+    """Post each incident from final_gold_data['normalized_incidents'] to the backend."""
     incidents = _extract_incidents(final_gold_data)
     url = f"{base_url.rstrip('/')}/incidents"
     responses: list[Any] = []
@@ -41,18 +41,20 @@ def post_final_gold_incidents(final_gold_data: Any, base_url: str = BACKEND_BASE
 
 def _extract_incidents(final_gold_data: Any) -> list[dict[str, Any]]:
     if not isinstance(final_gold_data, dict):
-        raise ValueError("final_gold_data must be a dict containing final_response.")
+        raise ValueError(
+            "final_gold_data must be a dict containing normalized_incidents."
+        )
 
-    final_response = final_gold_data.get("final_response")
-    if final_response is None:
-        log_step("No final_response found in final_gold_data; skipping incident posting.")
-        return []
+    incidents = final_gold_data.get("normalized_incidents")
+    if not isinstance(incidents, list):
+        raise ValueError("normalized_incidents must be a list of incident payloads.")
+    if not all(isinstance(item, dict) for item in incidents):
+        raise ValueError("normalized_incidents must contain only incident objects.")
 
-    if not isinstance(final_response, list):
-        raise ValueError("final_response must be a list of incident payloads.")
-
-    log_step(f"Extracted {len(final_response)} incident candidate(s) from final_response.")
-    return final_response
+    log_step(
+        f"Using normalized_incidents with {len(incidents)} incident candidate(s)."
+    )
+    return incidents
 
 
 def _build_incident_payload(incident: Any) -> dict[str, Any]:

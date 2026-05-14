@@ -4,11 +4,13 @@ from typing import Any
 
 from modules.fetch_thread_list import fetch_cache, fetch_thread_by_id
 from modules.generate_llm_response import generate_llm_response
+from modules.normalize_final_incidents import normalize_final_incidents
 from modules.progress_log import describe_payload, log_step
 from modules.read_text_file import read_text_file
 
 
-PROMPT2_PATH = Path("prompts/prompt2.txt")
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+PROMPT2_PATH = WORKSPACE_ROOT / "prompts" / "prompt2.txt"
 
 
 def finalize_gold_level_data(
@@ -33,17 +35,25 @@ def finalize_gold_level_data(
             cache_payload,
         )
     )
+    final_response = llm_result.get("parsed_json")
+    final_response_raw_text = llm_result.get("raw_text", "")
+    normalized_incidents = normalize_final_incidents(
+        final_response,
+        final_response_raw_text,
+    )
     log_step(
         "Second gold LLM call completed with final response "
-        f"{describe_payload(llm_result.get('parsed_json'))}."
+        f"{describe_payload(final_response)} and normalized incidents "
+        f"{describe_payload(normalized_incidents)}."
     )
 
     return {
         "initial_classification_gold_data": initial_classification_gold_data,
         "thread_details": thread_details,
         "cache_snapshot": cache_payload,
-        "final_response": llm_result.get("parsed_json"),
-        "final_response_raw_text": llm_result.get("raw_text", ""),
+        "final_response": final_response,
+        "final_response_raw_text": final_response_raw_text,
+        "normalized_incidents": normalized_incidents,
     }
 
 
