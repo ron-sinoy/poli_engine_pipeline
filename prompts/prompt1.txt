@@ -1,0 +1,4 @@
+1. Find which all first level nested objects content value is political related, if not, delete the whole objects
+2. Then compare with given threadsList and compare by looking at threadtitle and summary, which thread is it realted to 
+if not related to any thread in the list add a key called thread_id in object with value 1, if it is related to any given thread 
+give thread_id as that for the object

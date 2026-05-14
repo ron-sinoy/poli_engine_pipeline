@@ -1,0 +1,15 @@
+compare with cache details and find which all persons are involved in the given content and find their person_id from cache
+paraphrase content of all objects of json
+then return a json in format, remove everything else
+paraphrazing should be malayalam
+
+Returning nothing other than, this 
+
+[
+    {
+"thread_id": #from input,
+"body": #paraphrazed content, 
+"source_url": #itemDetailURL from input,
+"persons_involved": #person id as array,eg [0,5,6]
+},{.......}
+]
