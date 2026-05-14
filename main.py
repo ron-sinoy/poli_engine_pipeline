@@ -24,6 +24,34 @@ def main():
     log_step(f"Bronze stage completed with {describe_payload(bronze_level_data)}.")
     silver_level_data = build_silver_level_data(bronze_level_data)
     log_step(f"Silver stage completed with {describe_payload(silver_level_data)}.")
+    log_step(f"Writing bronze markdown to {BRONZE_RESULTS_PATH}.")
+    write_json_markdown(BRONZE_RESULTS_PATH, bronze_level_data)
+    log_step(f"Finished writing bronze markdown to {BRONZE_RESULTS_PATH}.")
+    log_step(f"Writing silver markdown to {SILVER_RESULTS_PATH}.")
+    write_json_markdown(SILVER_RESULTS_PATH, silver_level_data)
+    log_step(f"Finished writing silver markdown to {SILVER_RESULTS_PATH}.")
+
+    if _should_end_pipeline_after_silver(silver_level_data):
+        log_step(
+            "Silver stage output was blank after checking; ending pipeline before gold stages."
+        )
+        initial_classification_gold_data: object = {}
+        final_gold_data: object = {}
+        posted_incidents: list[object] = []
+        log_step(f"Writing initial gold JSON to {INITIAL_GOLD_RESULTS_PATH}.")
+        write_json_file(INITIAL_GOLD_RESULTS_PATH, initial_classification_gold_data)
+        log_step(f"Finished writing initial gold JSON to {INITIAL_GOLD_RESULTS_PATH}.")
+        log_step(f"Writing final gold JSON to {FINAL_GOLD_RESULTS_PATH}.")
+        write_json_file(FINAL_GOLD_RESULTS_PATH, final_gold_data)
+        log_step(f"Finished writing final gold JSON to {FINAL_GOLD_RESULTS_PATH}.")
+        return (
+            bronze_level_data,
+            silver_level_data,
+            initial_classification_gold_data,
+            final_gold_data,
+            posted_incidents,
+        )
+
     initial_classification_gold_data = build_initial_classification_gold_data(
         silver_level_data
     )
@@ -34,12 +62,6 @@ def main():
     final_gold_data = build_final_gold_data(initial_classification_gold_data)
     log_step(f"Final gold stage completed with {describe_payload(final_gold_data)}.")
 
-    log_step(f"Writing bronze markdown to {BRONZE_RESULTS_PATH}.")
-    write_json_markdown(BRONZE_RESULTS_PATH, bronze_level_data)
-    log_step(f"Finished writing bronze markdown to {BRONZE_RESULTS_PATH}.")
-    log_step(f"Writing silver markdown to {SILVER_RESULTS_PATH}.")
-    write_json_markdown(SILVER_RESULTS_PATH, silver_level_data)
-    log_step(f"Finished writing silver markdown to {SILVER_RESULTS_PATH}.")
     log_step(f"Writing initial gold JSON to {INITIAL_GOLD_RESULTS_PATH}.")
     write_json_file(INITIAL_GOLD_RESULTS_PATH, initial_classification_gold_data)
     log_step(f"Finished writing initial gold JSON to {INITIAL_GOLD_RESULTS_PATH}.")
@@ -69,6 +91,16 @@ def write_json_markdown(path: Path, payload: object) -> None:
         file.write(json.dumps(payload, indent=2, ensure_ascii=False))
         file.write("\n```")
     log_step(f"Markdown JSON write complete for {path}.")
+
+
+def _should_end_pipeline_after_silver(payload: object) -> bool:
+    if payload is None:
+        return True
+
+    if isinstance(payload, (list, dict, str)):
+        return len(payload) == 0
+
+    return False
 
 
 if __name__ == "__main__":
