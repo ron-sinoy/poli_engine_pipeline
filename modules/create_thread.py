@@ -3,7 +3,6 @@ from typing import Any
 import httpx
 
 from modules.fetch_thread_list import BACKEND_BASE_URL
-from modules.progress_log import describe_payload, log_step
 
 
 def create_thread(title: str, summary: str, base_url: str = BACKEND_BASE_URL) -> dict[str, Any]:
@@ -16,12 +15,9 @@ def create_thread(title: str, summary: str, base_url: str = BACKEND_BASE_URL) ->
     }
     url = f"{base_url.rstrip('/')}/threads"
 
-    log_step(f"Posting new thread to {url} with payload {describe_payload(payload)}.")
     response = httpx.post(url, json=payload, timeout=None)
-    log_step(f"Received thread POST response {response.status_code} from {url}.")
     response.raise_for_status()
     parsed_response = _parse_response_body(response)
-    log_step(f"Parsed thread POST response as {describe_payload(parsed_response)}.")
     return parsed_response
 
 

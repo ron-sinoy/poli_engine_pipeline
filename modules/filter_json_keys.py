@@ -1,17 +1,9 @@
 from typing import Any
 
-from modules.progress_log import describe_payload, log_step
-
-
 def filter_json_keys(payload: Any, keys: list[Any]) -> Any:
     """Return a new JSON structure containing only matching keys and subtrees."""
-    log_step(
-        f"Filtering JSON keys on payload {describe_payload(payload)} with {len(keys)} keys."
-    )
     key_set = set(keys)
-    filtered_payload = _filter_json_keys(payload, key_set)
-    log_step(f"JSON key filtering produced {describe_payload(filtered_payload)}.")
-    return filtered_payload
+    return _filter_json_keys(payload, key_set)
 
 
 def _filter_json_keys(payload: Any, key_set: set[Any]) -> Any:

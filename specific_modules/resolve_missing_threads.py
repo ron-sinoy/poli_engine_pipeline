@@ -6,7 +6,6 @@ from typing import Any
 from modules.create_thread import create_thread, extract_thread_id
 from modules.fetch_thread_list import fetch_threads_list
 from modules.generate_llm_response import generate_llm_response
-from modules.progress_log import describe_payload, log_step
 from modules.read_text_file import read_text_file
 
 
@@ -26,7 +25,6 @@ def resolve_missing_threads(
     _collect_pending_items(rewritten_classification, pending_items)
 
     if not pending_items:
-        log_step("No unmatched classification items required new thread creation.")
         return {
             "classification": rewritten_classification,
             "threads_list": threads_list,
@@ -37,13 +35,8 @@ def resolve_missing_threads(
     silver_lookup = _build_silver_lookup(silver_level_data)
     created_threads: list[dict[str, Any]] = []
 
-    log_step(f"Resolving {len(pending_items)} unmatched classification item(s).")
     for index, pending_item in enumerate(pending_items, start=1):
         source_item = _match_source_item(pending_item, silver_lookup)
-        log_step(
-            "Generating metadata for unmatched classification item "
-            f"{index}/{len(pending_items)} using {describe_payload(source_item)}."
-        )
         metadata_response = generate_llm_response(
             _build_thread_metadata_prompt(prompt_template, pending_item, source_item)
         )
@@ -63,16 +56,8 @@ def resolve_missing_threads(
                 "summary": thread_payload["summary"],
             }
         )
-        log_step(
-            "Replaced unmatched classification item "
-            f"{index}/{len(pending_items)} with thread_id={created_thread_id}."
-        )
 
     refreshed_threads_list = fetch_threads_list()
-    log_step(
-        "Refreshed threads list after thread creation with "
-        f"{describe_payload(refreshed_threads_list)}."
-    )
     return {
         "classification": rewritten_classification,
         "threads_list": refreshed_threads_list,
@@ -84,10 +69,6 @@ def _collect_pending_items(payload: Any, pending_items: list[dict[str, Any]]) ->
     if isinstance(payload, dict):
         if _needs_new_thread(payload):
             pending_items.append(payload)
-            log_step(
-                "Queued unmatched classification item for thread creation with "
-                f"contentID={payload.get('contentID')!r}."
-            )
 
         for value in payload.values():
             _collect_pending_items(value, pending_items)
@@ -100,14 +81,10 @@ def _collect_pending_items(payload: Any, pending_items: list[dict[str, Any]]) ->
 def _needs_new_thread(classification_item: dict[str, Any]) -> bool:
     matched_existing_thread = classification_item.get("matched_existing_thread")
     if matched_existing_thread is False:
-        log_step(
-            "Classification item explicitly marked as unmatched to existing threads."
-        )
         return True
 
     thread_id = classification_item.get("thread_id")
     if thread_id in NEW_THREAD_SENTINELS:
-        log_step("Classification item used a new-thread sentinel thread_id.")
         return True
 
     return False
@@ -117,7 +94,6 @@ def _build_silver_lookup(silver_level_data: Any) -> dict[str, dict[str, Any]]:
     lookup: dict[str, dict[str, Any]] = {}
 
     if not isinstance(silver_level_data, list):
-        log_step("Silver lookup build skipped because silver_level_data was not a list.")
         return lookup
 
     for item in silver_level_data:
@@ -132,7 +108,6 @@ def _build_silver_lookup(silver_level_data: Any) -> dict[str, dict[str, Any]]:
         if isinstance(item_title, str) and item_title:
             lookup[f"itemTitle:{item_title}"] = item
 
-    log_step(f"Built silver lookup with {len(lookup)} key(s).")
     return lookup
 
 
@@ -144,17 +119,14 @@ def _match_source_item(
     if isinstance(content_id, str) and content_id:
         matched = silver_lookup.get(f"contentID:{content_id}")
         if matched is not None:
-            log_step(f"Matched unmatched classification item by contentID={content_id!r}.")
             return matched
 
     item_title = classification_item.get("itemTitle")
     if isinstance(item_title, str) and item_title:
         matched = silver_lookup.get(f"itemTitle:{item_title}")
         if matched is not None:
-            log_step(f"Matched unmatched classification item by itemTitle={item_title!r}.")
             return matched
 
-    log_step("Falling back to classification item because no silver source match was found.")
     return classification_item
 
 
@@ -166,9 +138,7 @@ def _build_thread_metadata_prompt(
     prompt_sections = [prompt_template.strip()]
     prompt_sections.append(_json_block("classification_item", classification_item))
     prompt_sections.append(_json_block("source_item", source_item))
-    prompt = "\n\n".join(section for section in prompt_sections if section)
-    log_step(f"Built thread metadata prompt with length {len(prompt)}.")
-    return prompt
+    return "\n\n".join(section for section in prompt_sections if section)
 
 
 def _extract_thread_payload(parsed_json: Any) -> dict[str, str]:
@@ -186,11 +156,8 @@ def _extract_thread_payload(parsed_json: Any) -> dict[str, str]:
         "title": title.strip(),
         "summary": summary.strip(),
     }
-    log_step(f"Extracted thread metadata payload {describe_payload(payload)}.")
     return payload
 
 
 def _json_block(label: str, payload: Any) -> str:
-    block = f"{label}:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
-    log_step(f"Created JSON block for {label} with length {len(block)}.")
-    return block
+    return f"{label}:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"

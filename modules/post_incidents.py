@@ -3,7 +3,6 @@ from typing import Any
 import httpx
 
 from modules.fetch_thread_list import BACKEND_BASE_URL
-from modules.progress_log import describe_payload, log_step
 
 
 MATHRUBHUMI_BASE_URL = "https://www.mathrubhumi.com"
@@ -15,27 +14,13 @@ def post_final_gold_incidents(final_gold_data: Any, base_url: str = BACKEND_BASE
     url = f"{base_url.rstrip('/')}/incidents"
     responses: list[Any] = []
 
-    log_step(f"Preparing to post {len(incidents)} incident(s) to {url}.")
-    for index, incident in enumerate(incidents, start=1):
+    for incident in incidents:
         payload = _build_incident_payload(incident)
-        log_step(
-            "Posting incident "
-            f"{index}/{len(incidents)} with thread_id={payload['thread_id']!r}."
-        )
         response = httpx.post(url, json=payload, timeout=None)
-        log_step(
-            "Received incident POST response "
-            f"{response.status_code} for item {index}/{len(incidents)}."
-        )
         response.raise_for_status()
         parsed_response = _parse_response_body(response)
         responses.append(parsed_response)
-        log_step(
-            "Stored incident POST response payload "
-            f"{describe_payload(parsed_response)} for item {index}/{len(incidents)}."
-        )
 
-    log_step(f"Completed posting {len(responses)} incident(s) to {url}.")
     return responses
 
 
@@ -51,9 +36,6 @@ def _extract_incidents(final_gold_data: Any) -> list[dict[str, Any]]:
     if not all(isinstance(item, dict) for item in incidents):
         raise ValueError("normalized_incidents must contain only incident objects.")
 
-    log_step(
-        f"Using normalized_incidents with {len(incidents)} incident candidate(s)."
-    )
     return incidents
 
 
@@ -83,7 +65,6 @@ def _build_incident_payload(incident: Any) -> dict[str, Any]:
         "source_url": _normalize_source_url(source_url.strip()),
         "persons_involved": persons_involved,
     }
-    log_step(f"Built incident payload {describe_payload(payload)}.")
     return payload
 
 
@@ -91,9 +72,7 @@ def _normalize_source_url(source_url: str) -> str:
     if source_url.startswith(("http://", "https://")):
         return source_url
 
-    normalized_url = f"{MATHRUBHUMI_BASE_URL}{source_url}"
-    log_step(f"Normalized relative source_url to {normalized_url}.")
-    return normalized_url
+    return f"{MATHRUBHUMI_BASE_URL}{source_url}"
 
 
 def _parse_response_body(response: httpx.Response) -> Any:

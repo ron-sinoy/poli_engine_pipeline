@@ -2,12 +2,11 @@ from typing import Any
 
 
 def log_step(message: str) -> None:
-    """Print a pipeline progress message immediately."""
     print(f"[pipeline] {message}", flush=True)
 
 
 def describe_payload(payload: Any) -> str:
-    """Return a short human-readable payload summary for logs."""
+    #Return a short human-readable payload summary for logs
     if isinstance(payload, list):
         return f"list(len={len(payload)})"
 

@@ -1,7 +1,6 @@
 from typing import Any
 
 from modules.filter_json_values import filter_json_values
-from modules.progress_log import describe_payload, log_step
 
 
 ALLOWED_ELEMENT_TYPES = [0, 1]
@@ -13,16 +12,7 @@ SUBSECTION_KEYS = ("subSectionTitle", "subsectionTitle")
 
 def filter_bronze_level_data(bronze_level_data: Any) -> Any:
     """Keep only bronze-level content objects that match the Tasklist filters."""
-    log_step(
-        "Filtering bronze level data with payload "
-        f"{describe_payload(bronze_level_data)}."
-    )
-    filtered_payload = _filter_components(bronze_level_data)
-    log_step(
-        "Bronze filter completed with payload "
-        f"{describe_payload(filtered_payload)}."
-    )
-    return filtered_payload
+    return _filter_components(bronze_level_data)
 
 
 def _filter_components(payload: Any) -> Any:
@@ -48,10 +38,6 @@ def _filter_components(payload: Any) -> Any:
 
         if _is_content_component(payload):
             matched = _matches_tasklist_filters(payload)
-            log_step(
-                "Evaluated content component "
-                f"{payload.get('itemTitle', '<no-title>')!r}: matched={matched}."
-            )
             return filtered if matched else None
 
         return filtered or None

@@ -47,3 +47,12 @@
 [P35] Added backend `sourceids` GET/POST helpers, inserted a silver-stage DB dedupe step after the `News`/`Kerala`/`India` bronze filter and before silver key filtering, propagated `contentID` to `POST /sourceids` as `contentId`, and prepared verification via compile and targeted sourceid-flow checks.
 [P36] Corrected the `sourceids` contract to use `source_id` in the POST payload and to recognize `source_id`/`sourceId` when parsing backend GET responses; re-verified with `python3 -m py_compile`.
 [P37] Updated `main.py` so the whole pipeline ends immediately after writing bronze/silver outputs when the silver payload is blank after the sourceids check, and it writes empty gold result files instead of continuing into gold or incident posting.
+[P38] Compared `architecture_masterplan (3).pdf` against the current bronze/silver/gold pipeline code, created `corrections.md` with `What is more` and `What is missing` findings, and logged the run.
+[P39] Updated `corrections.md` with an `Overall file architecture` section summarizing the current folder and responsibility split across `main.py`, `medallion/`, `specific_modules/`, `modules/`, `prompts/`, and `results/`.
+[P40] Added a `How completion and error messages run` section to `corrections.md`, covering `log_step()` progress printing, success-path messages, retries, handled fallbacks, and uncaught exceptions that stop the pipeline.
+[P41] Simplified the `How completion and error messages run` section in `corrections.md` to explain the success path, handled-error path, and stop-on-error path in plainer language.
+[P42] Rewrote the message-flow explanation in `corrections.md` into very plain user-facing language focused on what appears during runtime and how to tell success from failure.
+
+## 2026-05-21
+[P43] Refactored `build_bronze_level_data` in `medallion/bronze_level.py` to accept a `urls` list instead of fixed `url1`/`url2` parameters, loop over any number of sources, and merge them incrementally while keeping `DEFAULT_URLS` as the default two Mathrubhumi endpoints; verified with `python3 -m py_compile`.
+[P44] Removed all runtime usages of `log_step()` and `describe_payload()` across `main.py`, `medallion/`, `modules/`, and `specific_modules/` while keeping their definitions in `modules/progress_log.py`; simplified exception messages that previously embedded payload summaries and verified with usage search plus `python3 -m py_compile`.

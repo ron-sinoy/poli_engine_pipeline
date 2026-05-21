@@ -1,9 +1,6 @@
 import json
 from typing import Any
 
-from modules.progress_log import describe_payload, log_step
-
-
 def normalize_final_incidents(
     final_response: Any,
     final_response_raw_text: Any,
@@ -13,16 +10,10 @@ def normalize_final_incidents(
     payload_source = "final_response"
 
     if payload is None:
-        log_step("final_response was None; attempting normalization from raw text.")
         payload = _parse_raw_text_payload(final_response_raw_text)
         payload_source = "final_response_raw_text"
 
-    incidents = _normalize_incident_list(payload, payload_source)
-    log_step(
-        "Normalized final incidents successfully from "
-        f"{payload_source} with {len(incidents)} item(s)."
-    )
-    return incidents
+    return _normalize_incident_list(payload, payload_source)
 
 
 def _parse_raw_text_payload(raw_text: Any) -> Any:
@@ -31,12 +22,7 @@ def _parse_raw_text_payload(raw_text: Any) -> Any:
 
     for candidate in _json_candidates(raw_text):
         try:
-            parsed = json.loads(candidate)
-            log_step(
-                "Parsed final_response_raw_text candidate as "
-                f"{describe_payload(parsed)}."
-            )
-            return parsed
+            return json.loads(candidate)
         except json.JSONDecodeError:
             continue
 
@@ -45,10 +31,7 @@ def _parse_raw_text_payload(raw_text: Any) -> Any:
 
 def _normalize_incident_list(payload: Any, payload_source: str) -> list[dict[str, Any]]:
     if not isinstance(payload, list):
-        raise ValueError(
-            f"{payload_source} must be a JSON array of incident objects, got "
-            f"{describe_payload(payload)}."
-        )
+        raise ValueError(f"{payload_source} must be a JSON array of incident objects.")
 
     normalized_incidents: list[dict[str, Any]] = []
     for index, item in enumerate(payload, start=1):
@@ -63,9 +46,7 @@ def _normalize_incident_item(
     payload_source: str,
 ) -> dict[str, Any]:
     if not isinstance(item, dict):
-        raise ValueError(
-            f"{payload_source}[{index}] must be an object, got {describe_payload(item)}."
-        )
+        raise ValueError(f"{payload_source}[{index}] must be an object.")
 
     thread_id = _normalize_int_like(
         item.get("thread_id"),
@@ -90,7 +71,6 @@ def _normalize_incident_item(
         "source_url": source_url,
         "persons_involved": persons_involved,
     }
-    log_step(f"Normalized incident item {index} as {describe_payload(normalized_item)}.")
     return normalized_item
 
 

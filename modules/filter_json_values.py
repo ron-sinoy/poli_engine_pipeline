@@ -1,13 +1,8 @@
 from typing import Any
 
-from modules.progress_log import log_step
-
-
 def filter_json_values(payload: Any, key: Any, values: list[Any]) -> Any:
     """Return the original payload when any matching key has an allowed value."""
-    log_step(f"Filtering payload values for key={key!r} against {values!r}.")
     matched = _has_matching_value(payload, key, values)
-    log_step(f"Value filter result for key={key!r}: matched={matched}.")
     return payload if matched else None
 
 
