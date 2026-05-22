@@ -5,18 +5,26 @@ from modules.merge_data import merge_data
 from specific_modules.filter_raw_data import filter_raw_data
 
 
-DEFAULT_URL_1 = "https://www.mathrubhumi.com/api/home-api-1"
-DEFAULT_URL_2 = "https://www.mathrubhumi.com/api/home-api-2"
+def build_bronze_level_data(sources: list[dict[str, Any]]) -> dict[str, Any]:
+    """Fetch, filter, and merge bronze payloads source by source."""
+    bronze_level_data: dict[str, Any] = {}
 
+    for source_item in sources:
+        source_name = source_item["source"]
+        source_urls = source_item["apis"]
 
-def build_bronze_level_data(
-    url1: str = DEFAULT_URL_1, url2: str = DEFAULT_URL_2
-) -> Any:
-    """Fetch, clean, and merge the raw source payloads into bronze-level data."""
-    data1 = _clean_source_payload(fetch_api(url1))
-    data2 = _clean_source_payload(fetch_api(url2))
-    return merge_data(data1, data2)
+        for url in source_urls:
+            #if source not defined, error raised inside filter
+            cleaned_payload = filter_raw_data(source_name, fetch_api(url))
 
+           #if its the first api of a source
+            if source_name not in bronze_level_data:
+                bronze_level_data[source_name] = cleaned_payload
+                continue
 
-def _clean_source_payload(payload: Any) -> Any:
-    return filter_raw_data(payload)
+            #second api onwards of saem source
+            bronze_level_data[source_name] = merge_data(
+                bronze_level_data[source_name], cleaned_payload
+            )
+
+    return bronze_level_data
