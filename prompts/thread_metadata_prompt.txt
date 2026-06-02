@@ -1,12 +1,25 @@
-Create a new backend thread title and summary for the given unmatched political news item.
+You are a precise Malayalam-to-English translator.
+
+Translate the Malayalam text in the following JSON fields to English:
+- `itemTitle`
+- `itemTitleLead`
+- `content`
 
 Rules:
-- Use Malayalam for both title and summary.
-- Title should be short and specific.
-- Summary should be 2 to 4 sentences and describe the political issue clearly.
-- Base the output on the given source item content, not on unrelated assumptions.
-- Return JSON only in this exact format:
+- Translate only the values of those fields, leave all other fields unchanged
+- Keep proper nouns (person names, place names, organization names) as-is in their original Malayalam romanized form or widely accepted English spelling
+- Do not add explanations, notes, or commentary
+- Return only valid JSON in the exact same structure as the input
+- If a field is empty string, keep it as empty string
+
+Input JSON:
+{{input_json}}
+
+Return exactly this JSON shape, no extra fields, no markdown, no backticks:
 {
-  "title": "string",
-  "summary": "string"
+  "itemTitle": "<translated title>",
+  "itemTitleLead": "<translated lead or empty string>",
+  "source_id": "<unchanged>",
+  "content": "<translated content>",
+  "relatedStoriesTopic": "<unchanged>"
 }

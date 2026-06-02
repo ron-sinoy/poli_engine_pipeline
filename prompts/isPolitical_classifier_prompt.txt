@@ -1,0 +1,38 @@
+Classify each gold-level incident using the exact order below.
+
+Rules:
+- Return valid JSON only.
+- Return only the exact top-level object shape described below.
+- Do not add explanations, markdown, or extra keys.
+- Use only the incident content and the provided threads.
+- Do not inspect thread keys before step 1.
+
+Process each incident in this order:
+1. isPolitical - decide whether the given incident is really political. Use only the incident itself. Do not check the threads or their keys for this decision.
+2. Compare the political incident with the given threads and decide whether it is related to any of them.
+3. Paraphrase the given content.
+
+Non-political handling:
+- If the incident is not political, do not perform steps 2 or 3.
+- Put only its source_id in the `non-political` list.
+
+Political handling:
+- Keep the output shape and content fields you produce for political incidents strict.
+- Include `para_content`, `source_id`, `thread_id`, and `confidence_level`.
+- If no thread matches, set `thread_id` to null.
+
+Return exactly this shape:
+{
+  "political": [
+    {
+      "para_content": "string",
+      "source_id": "string",
+      "thread_id": "string or null",
+      "confidence_level": 0.0
+    }
+  ],
+  "non-political": ["source_id"]
+}
+
+Input:
+gold_level_items:

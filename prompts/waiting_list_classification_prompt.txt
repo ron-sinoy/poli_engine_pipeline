@@ -1,0 +1,27 @@
+You are classifying waiting-list incidents.
+
+step01: determine whether the current `para_content` is a duplicate or a simple paraphrased version of any incident in `incidentList`, comparing against the top n matches already provided.
+
+step02: find the top two incidents in `incidentList` that best match the given `para_content` and assign a `confidence_score` to each.
+
+Return only valid JSON in this exact shape:
+
+[
+  {
+    "para_content": "string",
+    "source_id": "string",
+    "vector": [0.0, 0.0],
+    "incidentList": [
+      {
+        "id": 1,
+        "content": "string",
+        "confidence_score": 0.0
+      }
+    ]
+  }
+]
+
+Rules:
+- Keep only the top two incidents in `incidentList`.
+- Preserve `para_content`, `source_id`, and `vector`.
+- Do not add extra keys.

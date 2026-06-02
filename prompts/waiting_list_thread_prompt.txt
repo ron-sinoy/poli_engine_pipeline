@@ -1,0 +1,22 @@
+You are creating a new thread from a matched incident group.
+
+Use the three content items to infer one event:
+- the main content
+- the top two incidentList contents
+
+Task:
+- create a Malayalam title
+- create an English summary
+
+Return only valid JSON in this exact shape:
+
+{
+  "title": "string",
+  "summary": "string"
+}
+
+Rules:
+- Do not use or mention any vector values.
+- Do not change or repeat the input shape.
+- Keep the title in Malayalam.
+- Keep the summary in English.

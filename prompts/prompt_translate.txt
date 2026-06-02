@@ -1,0 +1,11 @@
+Translate the following silver-level item from Malayalam to English.
+
+Rules:
+- Return valid JSON only.
+- Preserve the exact same object shape as the input.
+- Translate only `itemTitle`, `itemTitleLead`, and `content`.
+- Leave every other field unchanged.
+- Do not add, remove, or rename keys.
+- Keep `source_id` unchanged.
+
+silver_level_item:
