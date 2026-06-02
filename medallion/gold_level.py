@@ -20,6 +20,7 @@ GOLD_CLASSIFIER_PROMPT = "isPolitical_classifier_prompt.txt"
 WAITING_LIST_CLASSIFICATION_PROMPT = "waiting_list_classification_prompt.txt"
 WAITING_LIST_THREAD_PROMPT = "waiting_list_thread_prompt.txt"
 THREADS_INTERNAL_URL = "https://poli-engine-backend-production.up.railway.app/threadsInternal"
+WAITING_LIST_CLASSIFICATION_TEXT_LIMIT = 240
 GOLD_SILVER_KEYS = [
     "itemTitle",
     "itemTitleLead",
@@ -45,6 +46,61 @@ def _build_waiting_list_classification_prompt(waiting_list_items: list[dict[str,
     prompt = load_prompt(WAITING_LIST_CLASSIFICATION_PROMPT)
     waiting_list_items_json = json.dumps(waiting_list_items, ensure_ascii=False, indent=2)
     return f"{prompt}\n\nwaiting_list_items:\n{waiting_list_items_json}"
+
+
+def _truncate_waiting_list_text(text: Any) -> Any:
+    if not isinstance(text, str) or len(text) <= WAITING_LIST_CLASSIFICATION_TEXT_LIMIT:
+        return text
+
+    return f"{text[:WAITING_LIST_CLASSIFICATION_TEXT_LIMIT]}...[truncated]"
+
+
+def _build_slim_waiting_list_classification_items(waiting_list_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    slim_waiting_list_items: list[dict[str, Any]] = []
+    for waiting_list_item in waiting_list_items:
+        slim_incident_list: list[dict[str, Any]] = []
+        for incident in waiting_list_item.get("incidentList", [])[:2]:
+            if not isinstance(incident, dict):
+                continue
+
+            slim_incident_list.append(
+                {
+                    "id": incident.get("id"),
+                    "content": _truncate_waiting_list_text(incident.get("content")),
+                    "confidence_score": incident.get("confidence_score"),
+                }
+            )
+
+        slim_waiting_list_items.append(
+            {
+                "para_content": _truncate_waiting_list_text(waiting_list_item.get("para_content")),
+                "source_id": waiting_list_item.get("source_id", waiting_list_item.get("sourceid")),
+                "incidentList": slim_incident_list,
+            }
+        )
+
+    return slim_waiting_list_items
+
+
+def _build_waiting_list_classification_lookup(
+    waiting_list_items: list[dict[str, Any]],
+) -> dict[Any, dict[str, Any]]:
+    waiting_list_lookup: dict[Any, dict[str, Any]] = {}
+    for waiting_list_item in waiting_list_items:
+        incident_lookup: dict[Any, Any] = {}
+        for incident in waiting_list_item.get("incidentList", []):
+            if not isinstance(incident, dict):
+                continue
+
+            incident_lookup[incident.get("id")] = incident.get("content")
+
+        waiting_list_lookup[waiting_list_item.get("source_id", waiting_list_item.get("sourceid"))] = {
+            "para_content": waiting_list_item.get("para_content"),
+            "vector": waiting_list_item.get("vector"),
+            "incident_lookup": incident_lookup,
+        }
+
+    return waiting_list_lookup
 
 
 def _build_waiting_list_thread_prompt(waiting_list_items: list[dict[str, Any]]) -> str:
@@ -163,36 +219,50 @@ def _normalize_waiting_list_incident(incident: dict[str, Any]) -> dict[str, Any]
 
 def _normalize_waiting_list_classification_response(
     classifier_payload: Any,
+    waiting_list_items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    waiting_list_lookup = _build_waiting_list_classification_lookup(waiting_list_items)
     if isinstance(classifier_payload, list):
-        waiting_list_items = classifier_payload
+        classified_waiting_list_items = classifier_payload
     elif isinstance(classifier_payload, dict):
-        waiting_list_items = classifier_payload.get(
+        classified_waiting_list_items = classifier_payload.get(
             "waiting_list_items",
             classifier_payload.get("data", classifier_payload.get("items", [])),
         )
-        if not isinstance(waiting_list_items, list):
-            waiting_list_items = [waiting_list_items]
+        if not isinstance(classified_waiting_list_items, list):
+            classified_waiting_list_items = [classified_waiting_list_items]
     else:
-        waiting_list_items = []
+        classified_waiting_list_items = []
 
     normalized_items: list[dict[str, Any]] = []
-    for item in waiting_list_items:
+    for item in classified_waiting_list_items:
         if not isinstance(item, dict):
             continue
 
-        normalized_incidents = [
-            _normalize_waiting_list_incident(incident)
-            for incident in item.get("incidentList", [])
-            if isinstance(incident, dict)
-        ]
+        source_id = item.get("source_id", item.get("sourceid"))
+        original_waiting_list_item = waiting_list_lookup.get(source_id, {})
+        incident_lookup = original_waiting_list_item.get("incident_lookup", {})
+        normalized_incidents: list[dict[str, Any]] = []
+        for incident in item.get("incidentList", []):
+            if not isinstance(incident, dict):
+                continue
+
+            incident_id = incident.get("id")
+            normalized_incidents.append(
+                {
+                    "id": incident_id,
+                    "content": incident_lookup.get(incident_id, incident.get("content")),
+                    "confidence_score": float(incident.get("confidence_score", 0.0)),
+                }
+            )
+
         normalized_incidents.sort(key=lambda incident: incident["confidence_score"], reverse=True)
 
         normalized_items.append(
             {
-                "para_content": item.get("para_content"),
-                "source_id": item.get("source_id", item.get("sourceid")),
-                "vector": item.get("vector"),
+                "para_content": original_waiting_list_item.get("para_content", item.get("para_content")),
+                "source_id": source_id,
+                "vector": original_waiting_list_item.get("vector", item.get("vector")),
                 "incidentList": normalized_incidents[:2],
             }
         )
@@ -201,9 +271,10 @@ def _normalize_waiting_list_classification_response(
 
 
 def _classify_waiting_list_items(waiting_list_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    classifier_response = llm_node(prompt=_build_waiting_list_classification_prompt(waiting_list_items))
+    slim_waiting_list_items = _build_slim_waiting_list_classification_items(waiting_list_items)
+    classifier_response = llm_node(prompt=_build_waiting_list_classification_prompt(slim_waiting_list_items))
     classifier_payload = _parse_json_response(classifier_response)
-    return _normalize_waiting_list_classification_response(classifier_payload)
+    return _normalize_waiting_list_classification_response(classifier_payload, waiting_list_items)
 
 
 def _reshape_waiting_list_item_for_thread_creation(waiting_list_item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -376,7 +447,9 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
         vector_lookup,
     )
 
-    if confidence_checker(political_items):
+    if confidence_checker(political_items) or any(
+        political_item.get("thread_id") is not None for political_item in political_items
+    ):
         main_output = _reshape_political_items_for_thread_output(political_items)
     else:
         waiting_list_content_lookup = _build_waiting_list_content_lookup(content_waiting_list_incidents())
