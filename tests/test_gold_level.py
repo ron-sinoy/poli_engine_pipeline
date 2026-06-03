@@ -76,10 +76,11 @@ class TestGoldLevel(unittest.TestCase):
                 with patch("medallion.gold_level.generate_gemini_embedding", return_value=[0.1, 0.2]) as generate_gemini_embedding:
                     with patch("medallion.gold_level.fetch_api", return_value=threads_internal) as fetch_api:
                         with patch("medallion.gold_level.update_db") as update_db:
-                            with patch("medallion.gold_level.confidence_checker", return_value=False) as confidence_checker:
-                                with patch("medallion.gold_level.content_waiting_list_incidents") as content_waiting_list_incidents:
-                                    with patch("medallion.gold_level.vector_waiting_list_incidents") as vector_waiting_list_incidents:
-                                        gold_level_data = build_gold_level_data(silver_level_data)
+                            with patch("medallion.gold_level.post_incidents") as post_incidents:
+                                with patch("medallion.gold_level.confidence_checker", return_value=False) as confidence_checker:
+                                    with patch("medallion.gold_level.content_waiting_list_incidents") as content_waiting_list_incidents:
+                                        with patch("medallion.gold_level.vector_waiting_list_incidents") as vector_waiting_list_incidents:
+                                            gold_level_data = build_gold_level_data(silver_level_data)
 
         self.assertEqual(gold_level_data, expected_gold_output)
         self.assertEqual(llm_node.call_count, 2)
@@ -100,7 +101,14 @@ class TestGoldLevel(unittest.TestCase):
         load_prompt.assert_any_call("prompt_translate.txt")
         load_prompt.assert_any_call("isPolitical_classifier_prompt.txt")
         fetch_api.assert_called_once()
-        update_db.assert_called_once_with("mt_#other", "filtered")
+        post_incidents.assert_called_once_with("thread-a", "Paraphrased incident")
+        update_db.assert_has_calls(
+            [
+                call("mt_#other", "filtered"),
+                call("mt_#sample", "completed"),
+            ]
+        )
+        self.assertEqual(update_db.call_count, 2)
         confidence_checker.assert_called_once_with(
             [
                 {
@@ -197,29 +205,30 @@ class TestGoldLevel(unittest.TestCase):
                         ],
                     ) as fetch_api:
                         with patch("medallion.gold_level.update_db") as update_db:
-                            with patch("medallion.gold_level.confidence_checker", return_value=False) as confidence_checker:
-                                with patch(
-                                    "medallion.gold_level.content_waiting_list_incidents",
-                                    return_value=waiting_list_content,
-                                ) as content_waiting_list_incidents:
+                            with patch("medallion.gold_level.post_incidents") as post_incidents:
+                                with patch("medallion.gold_level.confidence_checker", return_value=False) as confidence_checker:
                                     with patch(
-                                        "medallion.gold_level.vector_waiting_list_incidents",
-                                        return_value=[
-                                            {"id": 5, "vectors": [[0.9, 0.1]], "scores": 0.98},
-                                            {"id": 6, "vectors": [[0.8, 0.2]], "scores": 0.92},
-                                            {"id": 7, "vectors": [[0.7, 0.3]], "scores": 0.5},
-                                        ],
-                                    ) as vector_waiting_list_incidents:
+                                        "medallion.gold_level.content_waiting_list_incidents",
+                                        return_value=waiting_list_content,
+                                    ) as content_waiting_list_incidents:
                                         with patch(
-                                            "medallion.gold_level.waiting_list_confidence_checker",
-                                            return_value=True,
-                                        ) as waiting_list_confidence_checker:
-                                            with patch("medallion.gold_level.post_waitinglists") as post_waitinglists:
-                                                with patch(
-                                                    "medallion.gold_level.post_threads",
-                                                    return_value=11,
-                                                ) as post_threads:
-                                                    gold_level_data = build_gold_level_data(silver_level_data)
+                                            "medallion.gold_level.vector_waiting_list_incidents",
+                                            return_value=[
+                                                {"id": 5, "vectors": [[0.9, 0.1]], "scores": 0.98},
+                                                {"id": 6, "vectors": [[0.8, 0.2]], "scores": 0.92},
+                                                {"id": 7, "vectors": [[0.7, 0.3]], "scores": 0.5},
+                                            ],
+                                        ) as vector_waiting_list_incidents:
+                                            with patch(
+                                                "medallion.gold_level.waiting_list_confidence_checker",
+                                                return_value=True,
+                                            ) as waiting_list_confidence_checker:
+                                                with patch("medallion.gold_level.post_waitinglists") as post_waitinglists:
+                                                    with patch(
+                                                        "medallion.gold_level.post_threads",
+                                                        return_value=11,
+                                                    ) as post_threads:
+                                                        gold_level_data = build_gold_level_data(silver_level_data)
 
         expected_secondary_output = [
             {
@@ -246,7 +255,14 @@ class TestGoldLevel(unittest.TestCase):
                 "combined": expected_secondary_output,
             },
         )
-        update_db.assert_not_called()
+        update_db.assert_has_calls(
+            [
+                call("mt_#1", "completed"),
+                call(5, "completed"),
+                call(6, "completed"),
+            ]
+        )
+        self.assertEqual(update_db.call_count, 3)
         confidence_checker.assert_called_once_with(
             [
                 {
@@ -303,6 +319,22 @@ class TestGoldLevel(unittest.TestCase):
                 }
             ]
         )
+        post_incidents.assert_has_calls(
+            [
+                call(11, "Paraphrased incident"),
+                call(11, "Waiting list content 5"),
+                call(11, "Waiting list content 6"),
+            ]
+        )
+        self.assertEqual(post_incidents.call_count, 3)
+        update_db.assert_has_calls(
+            [
+                call("mt_#1", "completed"),
+                call(5, "completed"),
+                call(6, "completed"),
+            ]
+        )
+        self.assertEqual(update_db.call_count, 3)
         post_waitinglists.assert_not_called()
         post_threads.assert_called_once_with("മലയാളം തലക്കെട്ട്", "English summary")
 

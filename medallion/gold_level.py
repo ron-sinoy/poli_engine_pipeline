@@ -7,6 +7,7 @@ from modules.fetch_api import fetch_api
 from modules.content_waiting_list_incidents import content_waiting_list_incidents
 from modules.llm_node import llm_node
 from modules.prompt_loader import load_prompt
+from modules.post_incidents import post_incidents
 from modules.post_threads import post_threads
 from modules.post_waitinglists import post_waitinglists
 from modules.providers import generate_gemini_embedding
@@ -387,6 +388,12 @@ def _build_gold_output_wrapper(
     }
 
 
+def _post_incidents_and_complete_source_ids(gold_output: list[dict[str, Any]]) -> None:
+    for gold_output_item in gold_output:
+        post_incidents(gold_output_item["thread_id"], gold_output_item["content"])
+        update_db(gold_output_item["source_id"], "completed")
+
+
 def _build_waiting_list_content_lookup(waiting_list_content: list[dict[str, Any]]) -> dict[Any, Any]:
     content_lookup: dict[Any, Any] = {}
     for waiting_list_item in waiting_list_content:
@@ -478,4 +485,5 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
             else:
                 post_waitinglists(waiting_list_item["para_content"], waiting_list_item["vector"])
 
+    _post_incidents_and_complete_source_ids(main_output + secondary_output)
     return _build_gold_output_wrapper(main_output, secondary_output)
