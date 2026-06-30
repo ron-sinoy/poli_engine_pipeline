@@ -12,3 +12,5 @@ Mathrubhumi → Bronze (raw) → LLM structuring (OpenRouter) → Silver → Emb
 - DB: Supabase / Postgres + pgvector
 - Backend: Node/Express (Controller-Service-Repository), Railway
 - Frontend: React
+
+**refer file architecture.pdf**
