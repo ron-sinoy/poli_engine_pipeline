@@ -13,4 +13,6 @@ Mathrubhumi → Bronze (raw) → LLM structuring (OpenRouter) → Silver → Emb
 - Backend: Node/Express (Controller-Service-Repository), Railway
 - Frontend: React
 
-**refer file architecture.pdf**
+**refer file architecture.pdf** - for full architecture view
+<img width="1748" height="824" alt="image" src="https://github.com/user-attachments/assets/c5bd9969-6ec9-4f7a-875e-420d37250dd3" />
+<img width="1748" height="824" alt="image" src="https://github.com/user-attachments/assets/c5514ebd-08db-4926-ac38-a40f45912365" />
