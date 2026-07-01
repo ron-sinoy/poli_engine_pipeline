@@ -1,0 +1,267 @@
+import json
+import unittest
+from unittest.mock import call, patch
+
+from medallion.post_level import post_gold_level_data
+
+
+class TestPostLevel(unittest.TestCase):
+    def test_post_gold_level_data_posts_main_output_and_creates_secondary_thread(self) -> None:
+        gold_level_data = {
+            "main_output": [
+                {
+                    "source_id": "mt_#sample",
+                    "thread_id": "thread-a",
+                    "content": "Paraphrased incident",
+                }
+            ],
+            "secondary_output": [
+                {
+                    "para_content": "Waiting list incident",
+                    "source_id": "mt_#sample-secondary",
+                    "vector": [0.1, 0.2],
+                    "incidentList": [
+                        {
+                            "id": 5,
+                            "content": "Waiting list content 5",
+                            "confidence_score": 0.93,
+                        },
+                        {
+                            "id": 6,
+                            "content": "Waiting list content 6",
+                            "confidence_score": 0.81,
+                        },
+                    ],
+                }
+            ],
+            "non_political_source_ids": ["mt_#other"],
+        }
+        expected_output = {
+            "main_output": gold_level_data["main_output"],
+            "secondary_output": [
+                {
+                    "source_id": "mt_#sample-secondary",
+                    "thread_id": 11,
+                    "content": "Waiting list incident",
+                },
+                {
+                    "source_id": 5,
+                    "thread_id": 11,
+                    "content": "Waiting list content 5",
+                },
+                {
+                    "source_id": 6,
+                    "thread_id": 11,
+                    "content": "Waiting list content 6",
+                },
+            ],
+            "combined": gold_level_data["main_output"]
+            + [
+                {
+                    "source_id": "mt_#sample-secondary",
+                    "thread_id": 11,
+                    "content": "Waiting list incident",
+                },
+                {
+                    "source_id": 5,
+                    "thread_id": 11,
+                    "content": "Waiting list content 5",
+                },
+                {
+                    "source_id": 6,
+                    "thread_id": 11,
+                    "content": "Waiting list content 6",
+                },
+            ],
+        }
+
+        with patch("medallion.post_level.waiting_list_confidence_checker", return_value=True) as waiting_list_confidence_checker:
+            with patch("medallion.post_level.fetch_api", return_value={}):
+                with patch("medallion.post_level.load_prompt", return_value="Waiting list thread prompt") as load_prompt:
+                    with patch(
+                        "medallion.post_level.llm_node",
+                        return_value=json.dumps({"title": "മലയാളം തലക്കെട്ട്", "summary": "English summary"}, ensure_ascii=False),
+                    ) as llm_node:
+                        with patch("medallion.post_level.generate_gemini_embedding", return_value=[0.9, 0.8]) as generate_gemini_embedding:
+                            with patch("medallion.post_level.post_threads", return_value=11) as post_threads:
+                                with patch("medallion.post_level.post_incidents") as post_incidents:
+                                    with patch("medallion.post_level.update_db") as update_db:
+                                        with patch("medallion.post_level.post_waitinglists") as post_waitinglists:
+                                            result = post_gold_level_data(gold_level_data)
+
+        self.assertEqual(result, expected_output)
+        waiting_list_confidence_checker.assert_called_once_with([gold_level_data["secondary_output"][0]])
+        load_prompt.assert_called_once_with("waiting_list_thread_prompt.txt")
+        llm_node.assert_called_once()
+        self.assertIn("Waiting list thread prompt", llm_node.call_args.kwargs["prompt"])
+        generate_gemini_embedding.assert_called_once_with(
+            {
+                "title": "മലയാളം തലക്കെട്ട്",
+                "summary": "English summary",
+            }
+        )
+        post_threads.assert_called_once_with("മലയാളം തലക്കെട്ട്", "English summary")
+        post_incidents.assert_has_calls(
+            [
+                call("thread-a", "Paraphrased incident"),
+                call(11, "Waiting list incident"),
+                call(11, "Waiting list content 5"),
+                call(11, "Waiting list content 6"),
+            ]
+        )
+        self.assertEqual(post_incidents.call_count, 4)
+        update_db.assert_has_calls(
+            [
+                call("mt_#other", "filtered"),
+                call("mt_#sample", "completed"),
+                call("mt_#sample-secondary", "completed"),
+                call(5, "completed"),
+                call(6, "completed"),
+            ]
+        )
+        self.assertEqual(update_db.call_count, 5)
+        post_waitinglists.assert_not_called()
+
+    def test_post_gold_level_data_reuses_duplicate_thread_for_secondary_output(self) -> None:
+        gold_level_data = {
+            "main_output": [],
+            "secondary_output": [
+                {
+                    "para_content": "Waiting list incident",
+                    "source_id": "mt_#sample-secondary",
+                    "vector": [0.1, 0.2],
+                    "incidentList": [
+                        {
+                            "id": 5,
+                            "content": "Waiting list content 5",
+                            "confidence_score": 0.93,
+                        },
+                        {
+                            "id": 6,
+                            "content": "Waiting list content 6",
+                            "confidence_score": 0.81,
+                        },
+                    ],
+                }
+            ],
+            "non_political_source_ids": [],
+        }
+
+        with patch("medallion.post_level.waiting_list_confidence_checker", return_value=True) as waiting_list_confidence_checker:
+            with patch("medallion.post_level.fetch_api", return_value={"thread_id": 99}) as fetch_api:
+                with patch("medallion.post_level.post_threads") as post_threads:
+                    with patch("medallion.post_level.post_incidents") as post_incidents:
+                        with patch("medallion.post_level.update_db") as update_db:
+                            with patch("medallion.post_level.post_waitinglists") as post_waitinglists:
+                                result = post_gold_level_data(gold_level_data)
+
+        self.assertEqual(
+            result,
+            {
+                "main_output": [],
+                "secondary_output": [
+                    {
+                        "source_id": "mt_#sample-secondary",
+                        "thread_id": 99,
+                        "content": "Waiting list incident",
+                    },
+                    {
+                        "source_id": 5,
+                        "thread_id": 99,
+                        "content": "Waiting list content 5",
+                    },
+                    {
+                        "source_id": 6,
+                        "thread_id": 99,
+                        "content": "Waiting list content 6",
+                    },
+                ],
+                "combined": [
+                    {
+                        "source_id": "mt_#sample-secondary",
+                        "thread_id": 99,
+                        "content": "Waiting list incident",
+                    },
+                    {
+                        "source_id": 5,
+                        "thread_id": 99,
+                        "content": "Waiting list content 5",
+                    },
+                    {
+                        "source_id": 6,
+                        "thread_id": 99,
+                        "content": "Waiting list content 6",
+                    },
+                ],
+            },
+        )
+        waiting_list_confidence_checker.assert_called_once_with([gold_level_data["secondary_output"][0]])
+        fetch_api.assert_called_once_with("https://poli-engine-backend-production.up.railway.app/threads/5")
+        post_threads.assert_not_called()
+        post_incidents.assert_has_calls(
+            [
+                call(99, "Waiting list incident"),
+                call(99, "Waiting list content 5"),
+                call(99, "Waiting list content 6"),
+            ]
+        )
+        self.assertEqual(post_incidents.call_count, 3)
+        update_db.assert_has_calls(
+            [
+                call("mt_#sample-secondary", "completed"),
+                call(5, "completed"),
+                call(6, "completed"),
+            ]
+        )
+        self.assertEqual(update_db.call_count, 3)
+        post_waitinglists.assert_not_called()
+
+    def test_post_gold_level_data_posts_low_confidence_waiting_list_items(self) -> None:
+        gold_level_data = {
+            "main_output": [],
+            "secondary_output": [
+                {
+                    "para_content": "Waiting list incident",
+                    "source_id": "mt_#sample-secondary",
+                    "vector": [0.1, 0.2],
+                    "incidentList": [
+                        {
+                            "id": 5,
+                            "content": "Waiting list content 5",
+                            "confidence_score": 0.50,
+                        },
+                        {
+                            "id": 6,
+                            "content": "Waiting list content 6",
+                            "confidence_score": 0.40,
+                        },
+                    ],
+                }
+            ],
+            "non_political_source_ids": [],
+        }
+
+        with patch("medallion.post_level.waiting_list_confidence_checker", return_value=False) as waiting_list_confidence_checker:
+            with patch("medallion.post_level.post_threads") as post_threads:
+                with patch("medallion.post_level.post_incidents") as post_incidents:
+                    with patch("medallion.post_level.update_db") as update_db:
+                        with patch("medallion.post_level.post_waitinglists") as post_waitinglists:
+                            result = post_gold_level_data(gold_level_data)
+
+        self.assertEqual(
+            result,
+            {
+                "main_output": [],
+                "secondary_output": [],
+                "combined": [],
+            },
+        )
+        waiting_list_confidence_checker.assert_called_once_with([gold_level_data["secondary_output"][0]])
+        post_threads.assert_not_called()
+        post_incidents.assert_not_called()
+        post_waitinglists.assert_called_once_with("Waiting list incident", [0.1, 0.2])
+        update_db.assert_called_once_with("mt_#sample-secondary", "completed")
+
+
+if __name__ == "__main__":
+    unittest.main()
