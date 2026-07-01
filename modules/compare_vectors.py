@@ -11,9 +11,6 @@ def _load_params() -> dict[str, Any]:
     return json.loads(PARAMS_PATH.read_text(encoding="utf-8"))
 
 def _normalize_vector(vector):
-    print(type(vector))
-    print(repr(vector)[:500])
-
     if isinstance(vector, str):
         import ast
         vector = ast.literal_eval(vector)

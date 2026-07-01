@@ -6,7 +6,7 @@ def fetch_api(url: str, retries: int = 3, retry_delay: int = 5) -> Any:
     """Fetch JSON from a URL and return the parsed response body."""
     for attempt in range(retries):
         try:
-            response = httpx.get(url, follow_redirects=True, timeout=30)
+            response = httpx.get(url, follow_redirects=True, timeout=90)
             response.raise_for_status()
             return response.json()
         except (httpx.ConnectTimeout, httpx.HTTPStatusError) as e:

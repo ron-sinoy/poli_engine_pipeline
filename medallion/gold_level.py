@@ -7,13 +7,8 @@ from modules.fetch_api import fetch_api
 from modules.content_waiting_list_incidents import content_waiting_list_incidents
 from modules.llm_node import llm_node
 from modules.prompt_loader import load_prompt
-from modules.post_incidents import post_incidents
-from modules.post_threads import post_threads
-from modules.post_waitinglists import post_waitinglists
 from modules.providers import generate_gemini_embedding
-from modules.update_db import update_db
 from modules.vector_waiting_list_incidents import vector_waiting_list_incidents
-from modules.waiting_list_confidence_checker import waiting_list_confidence_checker
 
 
 GOLD_TRANSLATION_PROMPT = "prompt_translate.txt"
@@ -278,71 +273,6 @@ def _classify_waiting_list_items(waiting_list_items: list[dict[str, Any]]) -> li
     return _normalize_waiting_list_classification_response(classifier_payload, waiting_list_items)
 
 
-def _reshape_waiting_list_item_for_thread_creation(waiting_list_item: dict[str, Any]) -> list[dict[str, Any]]:
-    thread_candidates = [
-        {
-            "source_id": waiting_list_item["source_id"],
-            "content": waiting_list_item["para_content"],
-            "thread_id": None,
-        }
-    ]
-
-    for incident in waiting_list_item.get("incidentList", [])[:2]:
-        thread_candidates.append(
-            {
-                "source_id": incident["id"],
-                "content": incident["content"],
-                "thread_id": None,
-            }
-        )
-
-    return thread_candidates
-
-
-def _normalize_waiting_list_thread_response(thread_payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "title": thread_payload.get("title"),
-        "summary": thread_payload.get("summary"),
-    }
-
-
-def _generate_waiting_list_thread_metadata(waiting_list_items: list[dict[str, Any]]) -> dict[str, Any]:
-    thread_response = llm_node(prompt=_build_waiting_list_thread_prompt(waiting_list_items))
-    thread_payload = _parse_json_response(thread_response)
-    return _normalize_waiting_list_thread_response(thread_payload)
-
-
-def _attach_thread_ids(
-    waiting_list_items: list[dict[str, Any]],
-    thread_id: Any,
-) -> list[dict[str, Any]]:
-    enriched_waiting_list_items: list[dict[str, Any]] = []
-    for waiting_list_item in waiting_list_items:
-        enriched_waiting_list_item = dict(waiting_list_item)
-        enriched_waiting_list_item["thread_id"] = thread_id
-        enriched_waiting_list_items.append(enriched_waiting_list_item)
-
-    return enriched_waiting_list_items
-
-
-def _create_threads_from_waiting_list_item(waiting_list_item: dict[str, Any]) -> list[dict[str, Any]]:
-    thread_candidates = _reshape_waiting_list_item_for_thread_creation(waiting_list_item)
-    thread_metadata = _generate_waiting_list_thread_metadata(thread_candidates)
-    generate_gemini_embedding(
-        {
-            "title": thread_metadata["title"],
-            "summary": thread_metadata["summary"],
-        }
-    )
-    thread_id = post_threads(thread_metadata["title"], thread_metadata["summary"])
-    return _attach_thread_ids(thread_candidates, thread_id)
-
-
-def _update_non_political_source_ids(classifier_payload: dict[str, Any]) -> None:
-    for source_id in classifier_payload.get("non-political", []):
-        update_db(source_id, "filtered")
-
-
 def _extract_political_items(classifier_payload: dict[str, Any]) -> list[dict[str, Any]]:
     return list(classifier_payload.get("political", []))
 
@@ -388,12 +318,6 @@ def _build_gold_output_wrapper(
     }
 
 
-def _post_incidents_and_complete_source_ids(gold_output: list[dict[str, Any]]) -> None:
-    for gold_output_item in gold_output:
-        post_incidents(gold_output_item["thread_id"], gold_output_item["content"])
-        update_db(gold_output_item["source_id"], "completed")
-
-
 def _build_waiting_list_content_lookup(waiting_list_content: list[dict[str, Any]]) -> dict[Any, Any]:
     content_lookup: dict[Any, Any] = {}
     for waiting_list_item in waiting_list_content:
@@ -424,7 +348,7 @@ def _enrich_failed_items_with_content(
     return enriched_failed_items
 
 
-def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, Any]:
     """Translate silver items, embed them, match them to threads, and classify the final records."""
     gold_level_data: list[dict[str, Any]] = []
     main_output: list[dict[str, Any]] = []
@@ -447,7 +371,7 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
     silver_lookup = _build_silver_lookup(silver_level_data)
     enriched_data = _enrich_compared_data(compared_data, silver_lookup)
     classified_data = _classify_gold_items(enriched_data)
-    _update_non_political_source_ids(classified_data)
+    non_political_source_ids = list(classified_data.get("non-political", []))
     vector_lookup = {item["source_id"]: item["vector"] for item in gold_level_data}
     political_items = _attach_vectors_to_political_items(
         _extract_political_items(classified_data),
@@ -478,12 +402,8 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
             )
 
         enriched_failed_items = _enrich_failed_items_with_content(failed_items, waiting_list_content_lookup)
-        classified_waiting_list_items = _classify_waiting_list_items(enriched_failed_items)
-        for waiting_list_item in classified_waiting_list_items:
-            if waiting_list_confidence_checker([waiting_list_item]):
-                secondary_output.extend(_create_threads_from_waiting_list_item(waiting_list_item))
-            else:
-                post_waitinglists(waiting_list_item["para_content"], waiting_list_item["vector"])
+        secondary_output = _classify_waiting_list_items(enriched_failed_items)
 
-    _post_incidents_and_complete_source_ids(main_output + secondary_output)
-    return _build_gold_output_wrapper(main_output, secondary_output)
+    gold_output = _build_gold_output_wrapper(main_output, secondary_output)
+    gold_output["non_political_source_ids"] = non_political_source_ids
+    return gold_output
