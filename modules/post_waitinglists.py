@@ -3,7 +3,7 @@ from typing import Any
 import httpx
 
 
-WAITING_LISTS_URL = "https://poli-engine-backend-production.up.railway.app/waitinglists"
+WAITING_LISTS_URL = "https://poli-engine-backend.onrender.com/waitinglists"
 
 
 def post_waitinglists(content: str, vector: Any) -> Any:

@@ -3,7 +3,7 @@ from typing import Any
 from modules.fetch_api import fetch_api
 
 
-CONTENT_WAITING_LIST_INCIDENTS_URL = "https://poli-engine-backend-production.up.railway.app/content_waiting-list_incidents"
+CONTENT_WAITING_LIST_INCIDENTS_URL = "https://poli-engine-backend.onrender.com/content_waiting-list_incidents"
 
 
 def _normalize_content_waiting_list_incidents(

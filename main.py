@@ -28,6 +28,18 @@ def main():
     silver_level_data = build_silver_level_data(bronze_level_data)
     write_json_file(SILVER_RESULTS_PATH, silver_level_data)
 
+    # If Empty -> Return to end
+    if not silver_level_data:
+        empty_gold_post_data = {"main_output": [], "secondary_output": [], "combined": []}
+        write_json_file(
+            PRE_POST_GOLD_RESULTS_PATH,
+            {**empty_gold_post_data, "non_political_source_ids": []},
+        )
+        write_json_file(MAIN_OUTPUT_GOLD_RESULTS_PATH, [])
+        write_json_file(SECONDARY_OUTPUT_GOLD_RESULTS_PATH, [])
+        write_json_file(GOLD_RESULTS_PATH, [])
+        return bronze_level_data, silver_level_data, empty_gold_post_data
+
     # 3.Gold level
     gold_level_data = build_gold_level_data(silver_level_data)
     write_json_file(PRE_POST_GOLD_RESULTS_PATH, gold_level_data)

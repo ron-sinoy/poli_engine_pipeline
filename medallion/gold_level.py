@@ -15,7 +15,7 @@ GOLD_TRANSLATION_PROMPT = "prompt_translate.txt"
 GOLD_CLASSIFIER_PROMPT = "isPolitical_classifier_prompt.txt"
 WAITING_LIST_CLASSIFICATION_PROMPT = "waiting_list_classification_prompt.txt"
 WAITING_LIST_THREAD_PROMPT = "waiting_list_thread_prompt.txt"
-THREADS_INTERNAL_URL = "https://poli-engine-backend-production.up.railway.app/threadsInternal"
+THREADS_INTERNAL_URL = "https://poli-engine-backend.onrender.com/threadsInternal"
 WAITING_LIST_CLASSIFICATION_TEXT_LIMIT = 240
 GOLD_SILVER_KEYS = [
     "itemTitle",
@@ -83,12 +83,15 @@ def _build_waiting_list_classification_lookup(
 ) -> dict[Any, dict[str, Any]]:
     waiting_list_lookup: dict[Any, dict[str, Any]] = {}
     for waiting_list_item in waiting_list_items:
-        incident_lookup: dict[Any, Any] = {}
+        incident_lookup: dict[Any, dict[str, Any]] = {}
         for incident in waiting_list_item.get("incidentList", []):
             if not isinstance(incident, dict):
                 continue
 
-            incident_lookup[incident.get("id")] = incident.get("content")
+            incident_lookup[incident.get("id")] = {
+                "content": incident.get("content"),
+                "confidence_score": incident.get("confidence_score"),
+            }
 
         waiting_list_lookup[waiting_list_item.get("source_id", waiting_list_item.get("sourceid"))] = {
             "para_content": waiting_list_item.get("para_content"),
@@ -205,12 +208,16 @@ def _classify_gold_items(gold_items: list[dict[str, Any]]) -> dict[str, Any]:
     return _normalize_classifier_response(classifier_payload)
 
 
-def _normalize_waiting_list_incident(incident: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": incident.get("id"),
-        "content": incident.get("content"),
-        "confidence_score": float(incident.get("confidence_score", 0.0)),
-    }
+def _coerce_confidence_score(*candidates: Any) -> float:
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            return float(candidate)
+        except (TypeError, ValueError):
+            continue
+
+    return 0.0
 
 
 def _normalize_waiting_list_classification_response(
@@ -244,11 +251,15 @@ def _normalize_waiting_list_classification_response(
                 continue
 
             incident_id = incident.get("id")
+            original_incident = incident_lookup.get(incident_id, {})
             normalized_incidents.append(
                 {
                     "id": incident_id,
-                    "content": incident_lookup.get(incident_id, incident.get("content")),
-                    "confidence_score": float(incident.get("confidence_score", 0.0)),
+                    "content": original_incident.get("content", incident.get("content")),
+                    "confidence_score": _coerce_confidence_score(
+                        incident.get("confidence_score"),
+                        original_incident.get("confidence_score"),
+                    ),
                 }
             )
 
@@ -338,6 +349,7 @@ def _enrich_failed_items_with_content(
                 {
                     "id": incident["id"],
                     "content": content_lookup.get(incident["id"]),
+                    "confidence_score": incident.get("scores"),
                 }
             )
 
@@ -378,14 +390,20 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
         vector_lookup,
     )
 
-    if confidence_checker(political_items) or any(
-        political_item.get("thread_id") is not None for political_item in political_items
-    ):
-        main_output = _reshape_political_items_for_thread_output(political_items)
-    else:
+    passed_items: list[dict[str, Any]] = []
+    failed_political_items: list[dict[str, Any]] = []
+    for political_item in political_items:
+        if confidence_checker([political_item]):
+            passed_items.append(political_item)
+        else:
+            failed_political_items.append(political_item)
+
+    main_output = _reshape_political_items_for_thread_output(passed_items)
+
+    if failed_political_items:
         waiting_list_content_lookup = _build_waiting_list_content_lookup(content_waiting_list_incidents())
         failed_items: list[dict[str, Any]] = []
-        for political_item in political_items:
+        for political_item in failed_political_items:
             vector_ref = political_item.get("vector")
             if vector_ref is None:
                 continue
@@ -401,8 +419,9 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
                 }
             )
 
-        enriched_failed_items = _enrich_failed_items_with_content(failed_items, waiting_list_content_lookup)
-        secondary_output = _classify_waiting_list_items(enriched_failed_items)
+        if failed_items:
+            enriched_failed_items = _enrich_failed_items_with_content(failed_items, waiting_list_content_lookup)
+            secondary_output = _classify_waiting_list_items(enriched_failed_items)
 
     gold_output = _build_gold_output_wrapper(main_output, secondary_output)
     gold_output["non_political_source_ids"] = non_political_source_ids

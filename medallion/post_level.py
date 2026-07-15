@@ -1,7 +1,6 @@
 import json
 from typing import Any
 
-from modules.fetch_api import fetch_api
 from modules.llm_node import llm_node
 from modules.post_incidents import post_incidents
 from modules.post_threads import post_threads
@@ -9,11 +8,11 @@ from modules.post_waitinglists import post_waitinglists
 from modules.prompt_loader import load_prompt
 from modules.providers import generate_gemini_embedding
 from modules.update_db import update_db
+from modules.update_waitinglists import update_waitinglists
 from modules.waiting_list_confidence_checker import waiting_list_confidence_checker
 
 
 WAITING_LIST_THREAD_PROMPT = "waiting_list_thread_prompt.txt"
-THREADS_URL = "https://poli-engine-backend-production.up.railway.app/threads"
 
 
 def _parse_json_response(response_text: str) -> dict[str, Any]:
@@ -82,13 +81,13 @@ def _attach_thread_ids(
 def _create_threads_from_waiting_list_item(waiting_list_item: dict[str, Any]) -> list[dict[str, Any]]:
     thread_candidates = _reshape_waiting_list_item_for_thread_creation(waiting_list_item)
     thread_metadata = _generate_waiting_list_thread_metadata(thread_candidates)
-    generate_gemini_embedding(
+    thread_vector = generate_gemini_embedding(
         {
             "title": thread_metadata["title"],
             "summary": thread_metadata["summary"],
         }
     )
-    thread_id = post_threads(thread_metadata["title"], thread_metadata["summary"])
+    thread_id = post_threads(thread_metadata["title"], thread_metadata["summary"], thread_vector)
     return _attach_thread_ids(thread_candidates, thread_id)
 
 
@@ -107,22 +106,21 @@ def _update_non_political_source_ids(non_political_source_ids: list[str]) -> Non
         update_db(source_id, "filtered")
 
 
+def _post_secondary_thread_items(thread_items: list[dict[str, Any]]) -> None:
+    # first candidate is the news item (real source_id); the rest are waiting-list incidents
+    source_item, *waiting_list_incident_items = thread_items
+    post_incidents(source_item["thread_id"], source_item["content"])
+    update_db(source_item["source_id"], "completed")
+
+    for incident_item in waiting_list_incident_items:
+        post_incidents(incident_item["thread_id"], incident_item["content"])
+        update_waitinglists(incident_item["source_id"], "completed")
+
+
 def _post_secondary_output_item(waiting_list_item: dict[str, Any]) -> list[dict[str, Any]]:
     if waiting_list_confidence_checker([waiting_list_item]):
-        first_incident = waiting_list_item["incidentList"][0]
-        try:
-            existing_thread = fetch_api(f"{THREADS_URL}/{first_incident['id']}")
-        except Exception:
-            existing_thread = {}
-
-        if existing_thread.get("thread_id") is not None:
-            thread_candidates = _reshape_waiting_list_item_for_thread_creation(waiting_list_item)
-            created_thread_items = _attach_thread_ids(thread_candidates, existing_thread["thread_id"])
-            _post_incidents_and_complete_source_ids(created_thread_items)
-            return created_thread_items
-
         created_thread_items = _create_threads_from_waiting_list_item(waiting_list_item)
-        _post_incidents_and_complete_source_ids(created_thread_items)
+        _post_secondary_thread_items(created_thread_items)
         return created_thread_items
 
     post_waitinglists(waiting_list_item["para_content"], waiting_list_item["vector"])

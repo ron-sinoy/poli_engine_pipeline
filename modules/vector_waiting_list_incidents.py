@@ -7,7 +7,7 @@ from modules.fetch_api import fetch_api
 
 
 PARAMS_PATH = Path(__file__).resolve().parent.parent / "params.json"
-WAITING_LIST_VECTORS_URL = "https://poli-engine-backend-production.up.railway.app/vector_waiting_list_incidents"
+WAITING_LIST_VECTORS_URL = "https://poli-engine-backend.onrender.com/vector_waiting_list_incidents"
 
 
 def _load_params() -> dict[str, Any]:

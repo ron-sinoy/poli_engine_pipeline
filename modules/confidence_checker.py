@@ -17,7 +17,10 @@ def confidence_checker(political_items: list[dict[str, Any]]) -> bool:
     for political_item in political_items:
         if political_item.get("thread_id") is None:
             return False
-        if float(political_item["confidence_level"]) < benchmark_confidence:
+        confidence_level = political_item.get("confidence_level")
+        if confidence_level is None:
+            return False
+        if float(confidence_level) < benchmark_confidence:
             return False
 
     return True

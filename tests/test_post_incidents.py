@@ -17,7 +17,7 @@ class TestPostIncidents(unittest.TestCase):
 
         self.assertEqual(result, {"success": True})
         post.assert_called_once_with(
-            "https://poli-engine-backend-production.up.railway.app/incidents",
+            "https://poli-engine-backend.onrender.com/incidents",
             json={
                 "thread_id": "thread-a",
                 "para_content": "Paraphrased incident",

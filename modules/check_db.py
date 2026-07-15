@@ -3,7 +3,7 @@ from typing import Any
 import httpx
 
 
-SOURCE_IDS_URL = "https://poli-engine-backend-production.up.railway.app/sourceids"
+SOURCE_IDS_URL = "https://poli-engine-backend.onrender.com/sourceids"
 
 
 def get_source_ids() -> list[dict[str, Any]]:

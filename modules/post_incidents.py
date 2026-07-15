@@ -3,7 +3,7 @@ from typing import Any
 import httpx
 
 
-INCIDENTS_URL = "https://poli-engine-backend-production.up.railway.app/incidents"
+INCIDENTS_URL = "https://poli-engine-backend.onrender.com/incidents"
 
 
 def post_incidents(thread_id: Any, para_content: str) -> Any:

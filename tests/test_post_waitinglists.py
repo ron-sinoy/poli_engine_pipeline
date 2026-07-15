@@ -17,7 +17,7 @@ class TestPostWaitingLists(unittest.TestCase):
 
         self.assertEqual(result, {"success": True})
         post.assert_called_once_with(
-            "https://poli-engine-backend-production.up.railway.app/waitinglists",
+            "https://poli-engine-backend.onrender.com/waitinglists",
             json={
                 "content": "Sample content",
                 "vectors": [0.1, 0.2],

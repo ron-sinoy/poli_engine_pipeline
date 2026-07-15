@@ -17,7 +17,7 @@ class TestUpdateDb(unittest.TestCase):
 
         self.assertEqual(result, {"ok": True})
         post.assert_called_once_with(
-            "https://poli-engine-backend-production.up.railway.app/sourceids/update",
+            "https://poli-engine-backend.onrender.com/sourceids/update",
             json={
                 "source_id": "mt_#sample",
                 "status": "filtered",

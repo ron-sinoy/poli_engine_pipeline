@@ -3,14 +3,14 @@ from typing import Any
 import httpx
 
 
-SOURCE_IDS_URL = "https://poli-engine-backend.onrender.com/sourceids/update"
+WAITING_LISTS_UPDATE_URL = "https://poli-engine-backend.onrender.com/waitinglists/update"
 
 
-def update_db(source_id: str, status: str) -> Any:
+def update_waitinglists(waiting_list_id: Any, status: str) -> Any:
     response = httpx.post(
-        SOURCE_IDS_URL,
+        WAITING_LISTS_UPDATE_URL,
         json={
-            "source_id": source_id,
+            "id": waiting_list_id,
             "status": status,
         },
         follow_redirects=True,

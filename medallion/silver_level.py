@@ -33,12 +33,12 @@ def build_silver_level_data(bronze_level_data: list[dict[str, Any]]) -> list[dic
             continue
 
         source_name = item["source"]
-        item["itemDetailURL"] = complete_url(source_name, item["itemDetailURL"])
-        item["content"] = enrich_data(source_name, item["itemDetailURL"])
         relabeled_item = relabel_source_id(source_name, item)
         if check_db(source_ids, relabeled_item["source_id"]):
             continue
 
+        relabeled_item["itemDetailURL"] = complete_url(source_name, relabeled_item["itemDetailURL"])
+        relabeled_item["content"] = enrich_data(source_name, relabeled_item["itemDetailURL"])
         insert_db(relabeled_item["source_id"])
         filtered_item = filter_json_keys(relabeled_item, SILVER_KEYS)
         silver_level_data.append(filtered_item)

@@ -80,7 +80,7 @@ class TestGoldLevel(unittest.TestCase):
             ) as llm_node:
                 with patch("medallion.gold_level.generate_gemini_embedding", return_value=[0.1, 0.2]) as generate_gemini_embedding:
                     with patch("medallion.gold_level.fetch_api", return_value=threads_internal) as fetch_api:
-                        with patch("medallion.gold_level.confidence_checker", return_value=False) as confidence_checker:
+                        with patch("medallion.gold_level.confidence_checker", return_value=True) as confidence_checker:
                             gold_level_data = build_gold_level_data(silver_level_data)
 
         self.assertEqual(gold_level_data, expected_gold_output)
@@ -113,6 +113,144 @@ class TestGoldLevel(unittest.TestCase):
                 }
             ]
         )
+
+    def test_mixed_batch_splits_items_between_main_and_waiting_list_outputs(self) -> None:
+        silver_level_data = [
+            {
+                "itemTitle": "ശീർഷകം ഒന്ന്",
+                "itemTitleLead": "ലീഡ് ഒന്ന്",
+                "source_id": "mt_#pass",
+                "relatedStoriesTopic": "Topic",
+                "content": "ഉള്ളടക്കം ഒന്ന്",
+            },
+            {
+                "itemTitle": "ശീർഷകം രണ്ട്",
+                "itemTitleLead": "ലീഡ് രണ്ട്",
+                "source_id": "mt_#fail",
+                "relatedStoriesTopic": "Topic",
+                "content": "ഉള്ളടക്കം രണ്ട്",
+            },
+        ]
+        translated_items = [
+            {
+                "itemTitle": "Title one",
+                "itemTitleLead": "Lead one",
+                "source_id": "mt_#pass",
+                "relatedStoriesTopic": "Topic",
+                "content": "Content one",
+            },
+            {
+                "itemTitle": "Title two",
+                "itemTitleLead": "Lead two",
+                "source_id": "mt_#fail",
+                "relatedStoriesTopic": "Topic",
+                "content": "Content two",
+            },
+        ]
+        classifier_output = {
+            "political": [
+                {
+                    "para_content": "Passing incident",
+                    "source_id": "mt_#pass",
+                    "thread_id": "thread-a",
+                    "confidence_level": 0.95,
+                },
+                {
+                    "para_content": "Failing incident",
+                    "source_id": "mt_#fail",
+                    "thread_id": None,
+                    "confidence_level": 0.3,
+                },
+            ],
+            "non-political": [],
+        }
+        waiting_list_content = [
+            {"id": 5, "content": "Waiting list content 5"},
+            {"id": 6, "content": "Waiting list content 6"},
+        ]
+        waiting_list_classification_output = [
+            {
+                "para_content": "Failing incident",
+                "source_id": "mt_#fail",
+                "vector": [0.4, 0.5],
+                "incidentList": [
+                    {"id": 5, "content": "Waiting list content 5", "confidence_score": 0.93},
+                    {"id": 6, "content": "Waiting list content 6", "confidence_score": 0.81},
+                ],
+            }
+        ]
+
+        with patch(
+            "medallion.gold_level.load_prompt",
+            side_effect=[
+                "Translate prompt",
+                "Translate prompt",
+                "Classifier prompt",
+                "Waiting list classification prompt",
+            ],
+        ):
+            with patch(
+                "medallion.gold_level.llm_node",
+                side_effect=[
+                    json.dumps(translated_items[0], ensure_ascii=False),
+                    json.dumps(translated_items[1], ensure_ascii=False),
+                    json.dumps(classifier_output, ensure_ascii=False),
+                    json.dumps(waiting_list_classification_output, ensure_ascii=False),
+                ],
+            ) as llm_node:
+                with patch(
+                    "medallion.gold_level.generate_gemini_embedding",
+                    side_effect=[[0.1, 0.2], [0.4, 0.5]],
+                ):
+                    with patch(
+                        "medallion.gold_level.fetch_api",
+                        return_value=[
+                            {
+                                "thread_id": "thread-a",
+                                "title": "Thread A",
+                                "summary": "Summary A",
+                                "thread_vectors": [[0.1, 0.2]],
+                            }
+                        ],
+                    ):
+                        with patch(
+                            "medallion.gold_level.content_waiting_list_incidents",
+                            return_value=waiting_list_content,
+                        ):
+                            with patch(
+                                "medallion.gold_level.vector_waiting_list_incidents",
+                                return_value=[
+                                    {"id": 5, "vectors": [[0.9, 0.1]], "scores": 0.98},
+                                    {"id": 6, "vectors": [[0.8, 0.2]], "scores": 0.92},
+                                ],
+                            ) as vector_waiting_list_incidents:
+                                gold_level_data = build_gold_level_data(silver_level_data)
+
+        expected_secondary_item = {
+            "para_content": "Failing incident",
+            "source_id": "mt_#fail",
+            "vector": [0.4, 0.5],
+            "incidentList": [
+                {"id": 5, "content": "Waiting list content 5", "confidence_score": 0.93},
+                {"id": 6, "content": "Waiting list content 6", "confidence_score": 0.81},
+            ],
+        }
+        expected_main_item = {
+            "source_id": "mt_#pass",
+            "thread_id": "thread-a",
+            "content": "Passing incident",
+        }
+        self.assertEqual(
+            gold_level_data,
+            {
+                "main_output": [expected_main_item],
+                "secondary_output": [expected_secondary_item],
+                "combined": [expected_main_item, expected_secondary_item],
+                "non_political_source_ids": [],
+            },
+        )
+        self.assertEqual(llm_node.call_count, 4)
+        vector_waiting_list_incidents.assert_called_once_with([0.4, 0.5])
 
     def test_waiting_list_branch_returns_classified_waiting_list_items(self) -> None:
         silver_level_data = [
