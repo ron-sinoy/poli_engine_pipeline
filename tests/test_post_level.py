@@ -13,6 +13,7 @@ class TestPostLevel(unittest.TestCase):
                     "source_id": "mt_#sample",
                     "thread_id": "thread-a",
                     "content": "Paraphrased incident",
+                    "source_url": "https://example.com/main",
                 }
             ],
             "secondary_output": [
@@ -20,15 +21,18 @@ class TestPostLevel(unittest.TestCase):
                     "para_content": "Waiting list incident",
                     "source_id": "mt_#sample-secondary",
                     "vector": [0.1, 0.2],
+                    "source_url": "https://example.com/secondary",
                     "incidentList": [
                         {
                             "id": 5,
                             "content": "Waiting list content 5",
+                            "source_url": "https://example.com/waiting-5",
                             "confidence_score": 0.93,
                         },
                         {
                             "id": 6,
                             "content": "Waiting list content 6",
+                            "source_url": "https://example.com/waiting-6",
                             "confidence_score": 0.81,
                         },
                     ],
@@ -43,16 +47,19 @@ class TestPostLevel(unittest.TestCase):
                     "source_id": "mt_#sample-secondary",
                     "thread_id": 11,
                     "content": "Waiting list incident",
+                    "source_url": "https://example.com/secondary",
                 },
                 {
                     "source_id": 5,
                     "thread_id": 11,
                     "content": "Waiting list content 5",
+                    "source_url": "https://example.com/waiting-5",
                 },
                 {
                     "source_id": 6,
                     "thread_id": 11,
                     "content": "Waiting list content 6",
+                    "source_url": "https://example.com/waiting-6",
                 },
             ],
             "combined": gold_level_data["main_output"]
@@ -61,16 +68,19 @@ class TestPostLevel(unittest.TestCase):
                     "source_id": "mt_#sample-secondary",
                     "thread_id": 11,
                     "content": "Waiting list incident",
+                    "source_url": "https://example.com/secondary",
                 },
                 {
                     "source_id": 5,
                     "thread_id": 11,
                     "content": "Waiting list content 5",
+                    "source_url": "https://example.com/waiting-5",
                 },
                 {
                     "source_id": 6,
                     "thread_id": 11,
                     "content": "Waiting list content 6",
+                    "source_url": "https://example.com/waiting-6",
                 },
             ],
         }
@@ -103,10 +113,10 @@ class TestPostLevel(unittest.TestCase):
         post_threads.assert_called_once_with("മലയാളം തലക്കെട്ട്", "English summary", [0.9, 0.8])
         post_incidents.assert_has_calls(
             [
-                call("thread-a", "Paraphrased incident"),
-                call(11, "Waiting list incident"),
-                call(11, "Waiting list content 5"),
-                call(11, "Waiting list content 6"),
+                call("thread-a", "Paraphrased incident", "https://example.com/main"),
+                call(11, "Waiting list incident", "https://example.com/secondary"),
+                call(11, "Waiting list content 5", "https://example.com/waiting-5"),
+                call(11, "Waiting list content 6", "https://example.com/waiting-6"),
             ]
         )
         self.assertEqual(post_incidents.call_count, 4)
@@ -135,6 +145,7 @@ class TestPostLevel(unittest.TestCase):
                     "para_content": "Waiting list incident",
                     "source_id": "mt_#sample-secondary",
                     "vector": [0.1, 0.2],
+                    "source_url": "https://example.com/secondary",
                     "incidentList": [
                         {
                             "id": 5,
@@ -170,8 +181,41 @@ class TestPostLevel(unittest.TestCase):
         waiting_list_confidence_checker.assert_called_once_with([gold_level_data["secondary_output"][0]])
         post_threads.assert_not_called()
         post_incidents.assert_not_called()
-        post_waitinglists.assert_called_once_with("Waiting list incident", [0.1, 0.2])
+        post_waitinglists.assert_called_once_with("Waiting list incident", [0.1, 0.2], "https://example.com/secondary")
         update_db.assert_called_once_with("mt_#sample-secondary", "completed")
+
+    def test_secondary_thread_skips_legacy_waiting_list_items_without_source_url(self) -> None:
+        gold_level_data = {
+            "main_output": [],
+            "secondary_output": [{
+                "para_content": "Current incident",
+                "source_id": "mt_#current",
+                "source_url": "https://example.com/current",
+                "vector": [0.1, 0.2],
+                "incidentList": [{"id": 5, "content": "Legacy incident", "confidence_score": 0.9}],
+            }],
+            "non_political_source_ids": [],
+        }
+
+        with patch("medallion.post_level.waiting_list_confidence_checker", return_value=True):
+            with patch("medallion.post_level._create_threads_from_waiting_list_item", return_value=[
+                {"source_id": "mt_#current", "thread_id": 11, "content": "Current incident", "source_url": "https://example.com/current"},
+                {"source_id": 5, "thread_id": 11, "content": "Legacy incident", "source_url": None},
+            ]):
+                with patch("medallion.post_level.post_incidents") as post_incidents:
+                    with patch("medallion.post_level.update_db") as update_db:
+                        with patch("medallion.post_level.update_waitinglists") as update_waitinglists:
+                            result = post_gold_level_data(gold_level_data)
+
+        self.assertEqual(result["secondary_output"], [{
+            "source_id": "mt_#current",
+            "thread_id": 11,
+            "content": "Current incident",
+            "source_url": "https://example.com/current",
+        }])
+        post_incidents.assert_called_once_with(11, "Current incident", "https://example.com/current")
+        update_db.assert_called_once_with("mt_#current", "completed")
+        update_waitinglists.assert_not_called()
 
 
 if __name__ == "__main__":

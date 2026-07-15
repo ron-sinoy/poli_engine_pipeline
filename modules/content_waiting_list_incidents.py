@@ -11,12 +11,13 @@ def _normalize_content_waiting_list_incidents(
 ) -> list[dict[str, Any]]:
     normalized_content_waiting_list_incidents: list[dict[str, Any]] = []
     for waiting_list_item in content_waiting_list_incidents:
-        normalized_content_waiting_list_incidents.append(
-            {
-                "id": waiting_list_item["id"],
-                "content": waiting_list_item.get("content"),
-            }
-        )
+        normalized_item = {
+            "id": waiting_list_item["id"],
+            "content": waiting_list_item.get("content"),
+        }
+        if waiting_list_item.get("source_url") is not None:
+            normalized_item["source_url"] = waiting_list_item["source_url"]
+        normalized_content_waiting_list_incidents.append(normalized_item)
 
     return normalized_content_waiting_list_incidents
 

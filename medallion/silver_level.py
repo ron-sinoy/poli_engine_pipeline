@@ -12,6 +12,7 @@ SILVER_KEYS = [
     "itemTitle",
     "itemTitleLead",
     "source_id",
+    "source_url",
     "content",
     # "publishedTime",
     "relatedStoriesTopic",
@@ -38,6 +39,7 @@ def build_silver_level_data(bronze_level_data: list[dict[str, Any]]) -> list[dic
             continue
 
         relabeled_item["itemDetailURL"] = complete_url(source_name, relabeled_item["itemDetailURL"])
+        relabeled_item["source_url"] = relabeled_item["itemDetailURL"]
         relabeled_item["content"] = enrich_data(source_name, relabeled_item["itemDetailURL"])
         insert_db(relabeled_item["source_id"])
         filtered_item = filter_json_keys(relabeled_item, SILVER_KEYS)

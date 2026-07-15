@@ -23,6 +23,7 @@ GOLD_SILVER_KEYS = [
     "relatedStoriesTopic",
     "content",
     "source_id",
+    "source_url",
 ]
 
 
@@ -90,12 +91,14 @@ def _build_waiting_list_classification_lookup(
 
             incident_lookup[incident.get("id")] = {
                 "content": incident.get("content"),
+                "source_url": incident.get("source_url"),
                 "confidence_score": incident.get("confidence_score"),
             }
 
         waiting_list_lookup[waiting_list_item.get("source_id", waiting_list_item.get("sourceid"))] = {
             "para_content": waiting_list_item.get("para_content"),
             "vector": waiting_list_item.get("vector"),
+            "source_url": waiting_list_item.get("source_url"),
             "incident_lookup": incident_lookup,
         }
 
@@ -174,20 +177,25 @@ def _enrich_compared_data(
     return enriched_data
 
 
-def _normalize_classifier_response(classifier_payload: dict[str, Any]) -> dict[str, Any]:
+def _normalize_classifier_response(
+    classifier_payload: dict[str, Any],
+    source_url_lookup: dict[Any, Any],
+) -> dict[str, Any]:
     political_items: list[dict[str, Any]] = []
     for item in classifier_payload.get("political", []):
         if not isinstance(item, dict):
             continue
 
-        political_items.append(
-            {
-                "para_content": item.get("para_content"),
-                "source_id": item.get("source_id"),
-                "thread_id": item.get("thread_id"),
-                "confidence_level": item.get("confidence_level"),
-            }
-        )
+        political_item = {
+            "para_content": item.get("para_content"),
+            "source_id": item.get("source_id"),
+            "thread_id": item.get("thread_id"),
+            "confidence_level": item.get("confidence_level"),
+        }
+        source_url = source_url_lookup.get(item.get("source_id"))
+        if source_url is not None:
+            political_item["source_url"] = source_url
+        political_items.append(political_item)
 
     non_political_items: list[str] = []
     for item in classifier_payload.get("non-political", classifier_payload.get("non_political", [])):
@@ -205,7 +213,8 @@ def _normalize_classifier_response(classifier_payload: dict[str, Any]) -> dict[s
 def _classify_gold_items(gold_items: list[dict[str, Any]]) -> dict[str, Any]:
     classifier_response = llm_node(prompt=_build_classifier_prompt(gold_items))
     classifier_payload = _parse_json_response(classifier_response)
-    return _normalize_classifier_response(classifier_payload)
+    source_url_lookup = {item.get("source_id"): item.get("source_url") for item in gold_items}
+    return _normalize_classifier_response(classifier_payload, source_url_lookup)
 
 
 def _coerce_confidence_score(*candidates: Any) -> float:
@@ -252,27 +261,31 @@ def _normalize_waiting_list_classification_response(
 
             incident_id = incident.get("id")
             original_incident = incident_lookup.get(incident_id, {})
-            normalized_incidents.append(
-                {
-                    "id": incident_id,
-                    "content": original_incident.get("content", incident.get("content")),
-                    "confidence_score": _coerce_confidence_score(
-                        incident.get("confidence_score"),
-                        original_incident.get("confidence_score"),
-                    ),
-                }
-            )
+            normalized_incident = {
+                "id": incident_id,
+                "content": original_incident.get("content", incident.get("content")),
+                "confidence_score": _coerce_confidence_score(
+                    incident.get("confidence_score"),
+                    original_incident.get("confidence_score"),
+                ),
+            }
+            source_url = original_incident.get("source_url", incident.get("source_url"))
+            if source_url is not None:
+                normalized_incident["source_url"] = source_url
+            normalized_incidents.append(normalized_incident)
 
         normalized_incidents.sort(key=lambda incident: incident["confidence_score"], reverse=True)
 
-        normalized_items.append(
-            {
-                "para_content": original_waiting_list_item.get("para_content", item.get("para_content")),
-                "source_id": source_id,
-                "vector": original_waiting_list_item.get("vector", item.get("vector")),
-                "incidentList": normalized_incidents[:2],
-            }
-        )
+        normalized_item = {
+            "para_content": original_waiting_list_item.get("para_content", item.get("para_content")),
+            "source_id": source_id,
+            "vector": original_waiting_list_item.get("vector", item.get("vector")),
+            "incidentList": normalized_incidents[:2],
+        }
+        source_url = original_waiting_list_item.get("source_url", item.get("source_url"))
+        if source_url is not None:
+            normalized_item["source_url"] = source_url
+        normalized_items.append(normalized_item)
 
     return normalized_items
 
@@ -306,13 +319,14 @@ def _attach_vectors_to_political_items(
 def _reshape_political_items_for_thread_output(political_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     reshaped_items: list[dict[str, Any]] = []
     for political_item in political_items:
-        reshaped_items.append(
-            {
-                "source_id": political_item.get("source_id"),
-                "thread_id": political_item.get("thread_id"),
-                "content": political_item.get("para_content"),
-            }
-        )
+        reshaped_item = {
+            "source_id": political_item.get("source_id"),
+            "thread_id": political_item.get("thread_id"),
+            "content": political_item.get("para_content"),
+        }
+        if political_item.get("source_url") is not None:
+            reshaped_item["source_url"] = political_item["source_url"]
+        reshaped_items.append(reshaped_item)
 
     return reshaped_items
 
@@ -329,29 +343,35 @@ def _build_gold_output_wrapper(
     }
 
 
-def _build_waiting_list_content_lookup(waiting_list_content: list[dict[str, Any]]) -> dict[Any, Any]:
-    content_lookup: dict[Any, Any] = {}
+def _build_waiting_list_content_lookup(waiting_list_content: list[dict[str, Any]]) -> dict[Any, dict[str, Any]]:
+    content_lookup: dict[Any, dict[str, Any]] = {}
     for waiting_list_item in waiting_list_content:
-        content_lookup[waiting_list_item["id"]] = waiting_list_item.get("content")
+        content_lookup[waiting_list_item["id"]] = {
+            "content": waiting_list_item.get("content"),
+            "source_url": waiting_list_item.get("source_url"),
+        }
 
     return content_lookup
 
 
 def _enrich_failed_items_with_content(
     failed_items: list[dict[str, Any]],
-    content_lookup: dict[Any, Any],
+    content_lookup: dict[Any, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     enriched_failed_items: list[dict[str, Any]] = []
     for failed_item in failed_items:
         incident_list: list[dict[str, Any]] = []
         for incident in failed_item.get("incidentList", []):
-            incident_list.append(
-                {
-                    "id": incident["id"],
-                    "content": content_lookup.get(incident["id"]),
-                    "confidence_score": incident.get("scores"),
-                }
-            )
+            content_item = content_lookup.get(incident["id"], {})
+            enriched_incident = {
+                "id": incident["id"],
+                "content": content_item.get("content"),
+                "confidence_score": incident.get("scores"),
+            }
+            source_url = content_item.get("source_url", incident.get("source_url"))
+            if source_url is not None:
+                enriched_incident["source_url"] = source_url
+            incident_list.append(enriched_incident)
 
         enriched_failed_item = dict(failed_item)
         enriched_failed_item["incidentList"] = incident_list
@@ -410,14 +430,15 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
 
             incident_list = vector_waiting_list_incidents(vector_ref)
 
-            failed_items.append(
-                {
-                    "para_content": political_item["para_content"],
-                    "source_id": political_item["source_id"],
-                    "incidentList": incident_list,
-                    "vector": vector_ref,
-                }
-            )
+            failed_item = {
+                "para_content": political_item["para_content"],
+                "source_id": political_item["source_id"],
+                "incidentList": incident_list,
+                "vector": vector_ref,
+            }
+            if political_item.get("source_url") is not None:
+                failed_item["source_url"] = political_item["source_url"]
+            failed_items.append(failed_item)
 
         if failed_items:
             enriched_failed_items = _enrich_failed_items_with_content(failed_items, waiting_list_content_lookup)

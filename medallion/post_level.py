@@ -49,6 +49,7 @@ def _reshape_waiting_list_item_for_thread_creation(waiting_list_item: dict[str, 
         {
             "source_id": waiting_list_item["source_id"],
             "content": waiting_list_item["para_content"],
+            "source_url": waiting_list_item.get("source_url"),
             "thread_id": None,
         }
     ]
@@ -58,6 +59,7 @@ def _reshape_waiting_list_item_for_thread_creation(waiting_list_item: dict[str, 
             {
                 "source_id": incident["id"],
                 "content": incident["content"],
+                "source_url": incident.get("source_url"),
                 "thread_id": None,
             }
         )
@@ -93,7 +95,11 @@ def _create_threads_from_waiting_list_item(waiting_list_item: dict[str, Any]) ->
 
 def _post_incidents_and_complete_source_ids(postable_items: list[dict[str, Any]]) -> None:
     for postable_item in postable_items:
-        post_incidents(postable_item["thread_id"], postable_item["content"])
+        post_incidents(
+            postable_item["thread_id"],
+            postable_item["content"],
+            postable_item.get("source_url"),
+        )
         update_db(postable_item["source_id"], "completed")
 
 
@@ -106,24 +112,35 @@ def _update_non_political_source_ids(non_political_source_ids: list[str]) -> Non
         update_db(source_id, "filtered")
 
 
-def _post_secondary_thread_items(thread_items: list[dict[str, Any]]) -> None:
+def _post_secondary_thread_items(thread_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # first candidate is the news item (real source_id); the rest are waiting-list incidents
     source_item, *waiting_list_incident_items = thread_items
-    post_incidents(source_item["thread_id"], source_item["content"])
+    post_incidents(source_item["thread_id"], source_item["content"], source_item.get("source_url"))
     update_db(source_item["source_id"], "completed")
+    posted_items = [source_item]
 
     for incident_item in waiting_list_incident_items:
-        post_incidents(incident_item["thread_id"], incident_item["content"])
+        # Legacy waiting-list rows did not retain their article URL. Do not post an
+        # invalid incident or mark the row complete; it can be retried after backfill.
+        if not incident_item.get("source_url"):
+            continue
+        post_incidents(incident_item["thread_id"], incident_item["content"], incident_item.get("source_url"))
         update_waitinglists(incident_item["source_id"], "completed")
+        posted_items.append(incident_item)
+
+    return posted_items
 
 
 def _post_secondary_output_item(waiting_list_item: dict[str, Any]) -> list[dict[str, Any]]:
     if waiting_list_confidence_checker([waiting_list_item]):
         created_thread_items = _create_threads_from_waiting_list_item(waiting_list_item)
-        _post_secondary_thread_items(created_thread_items)
-        return created_thread_items
+        return _post_secondary_thread_items(created_thread_items)
 
-    post_waitinglists(waiting_list_item["para_content"], waiting_list_item["vector"])
+    post_waitinglists(
+        waiting_list_item["para_content"],
+        waiting_list_item["vector"],
+        waiting_list_item.get("source_url"),
+    )
     update_db(waiting_list_item["source_id"], "completed")
     return []
 

@@ -52,12 +52,13 @@ def vector_waiting_list_incidents(
     incident_list: list[dict[str, Any]] = []
     for ranked_item in ranked_incidents:
         matched_waiting_list_item = waiting_list_lookup.get(ranked_item["thread_id"], {})
-        incident_list.append(
-            {
-                "id": matched_waiting_list_item.get("id", ranked_item["thread_id"]),
-                "vectors": matched_waiting_list_item.get("vectors", []),
-                "scores": ranked_item["scores"],
-            }
-        )
+        incident_item = {
+            "id": matched_waiting_list_item.get("id", ranked_item["thread_id"]),
+            "vectors": matched_waiting_list_item.get("vectors", []),
+            "scores": ranked_item["scores"],
+        }
+        if matched_waiting_list_item.get("source_url") is not None:
+            incident_item["source_url"] = matched_waiting_list_item["source_url"]
+        incident_list.append(incident_item)
 
     return incident_list
