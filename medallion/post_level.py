@@ -57,7 +57,8 @@ def _reshape_waiting_list_item_for_thread_creation(waiting_list_item: dict[str, 
     for incident in waiting_list_item.get("incidentList", [])[:2]:
         thread_candidates.append(
             {
-                "source_id": incident["id"],
+                "waiting_list_id": incident["id"],
+                "source_id": incident.get("source_id"),
                 "content": incident["content"],
                 "source_url": incident.get("source_url"),
                 "thread_id": None,
@@ -93,18 +94,29 @@ def _create_threads_from_waiting_list_item(waiting_list_item: dict[str, Any]) ->
     return _attach_thread_ids(thread_candidates, thread_id)
 
 
-def _post_incidents_and_complete_source_ids(postable_items: list[dict[str, Any]]) -> None:
+def _post_incidents_and_complete_source_ids(postable_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    posted_items: list[dict[str, Any]] = []
     for postable_item in postable_items:
-        post_incidents(
-            postable_item["thread_id"],
-            postable_item["content"],
-            postable_item.get("source_url"),
-        )
-        update_db(postable_item["source_id"], "completed")
+        # One unpostable item must not strand the rest of the batch at
+        # "processing" -- that is what left 4060 rows stuck and re-processed.
+        try:
+            post_incidents(
+                postable_item["thread_id"],
+                postable_item["content"],
+                postable_item.get("source_url"),
+            )
+            update_db(postable_item["source_id"], "completed")
+        except Exception as error:
+            print(f"post failed for {postable_item.get('source_id')}: {error}")
+            continue
+
+        posted_items.append(postable_item)
+
+    return posted_items
 
 
-def _post_main_output(main_output: list[dict[str, Any]]) -> None:
-    _post_incidents_and_complete_source_ids(main_output)
+def _post_main_output(main_output: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _post_incidents_and_complete_source_ids(main_output)
 
 
 def _update_non_political_source_ids(non_political_source_ids: list[str]) -> None:
@@ -120,12 +132,12 @@ def _post_secondary_thread_items(thread_items: list[dict[str, Any]]) -> list[dic
     posted_items = [source_item]
 
     for incident_item in waiting_list_incident_items:
-        # Legacy waiting-list rows did not retain their article URL. Do not post an
-        # invalid incident or mark the row complete; it can be retried after backfill.
-        if not incident_item.get("source_url"):
-            continue
         post_incidents(incident_item["thread_id"], incident_item["content"], incident_item.get("source_url"))
-        update_waitinglists(incident_item["source_id"], "completed")
+        # Retire the waiting-list row so it cannot spawn this thread again, and
+        # complete the article it came from.
+        update_waitinglists(incident_item["waiting_list_id"], "completed")
+        if incident_item.get("source_id"):
+            update_db(incident_item["source_id"], "completed")
         posted_items.append(incident_item)
 
     return posted_items
@@ -140,6 +152,7 @@ def _post_secondary_output_item(waiting_list_item: dict[str, Any]) -> list[dict[
         waiting_list_item["para_content"],
         waiting_list_item["vector"],
         waiting_list_item.get("source_url"),
+        waiting_list_item.get("source_id"),
     )
     update_db(waiting_list_item["source_id"], "completed")
     return []
@@ -151,14 +164,17 @@ def post_gold_level_data(gold_level_data: dict[str, Any]) -> dict[str, list[dict
     non_political_source_ids = list(gold_level_data.get("non_political_source_ids", []))
 
     _update_non_political_source_ids(non_political_source_ids)
-    _post_main_output(main_output)
+    posted_main_output = _post_main_output(main_output)
 
     final_secondary_output: list[dict[str, Any]] = []
     for waiting_list_item in secondary_output:
-        final_secondary_output.extend(_post_secondary_output_item(waiting_list_item))
+        try:
+            final_secondary_output.extend(_post_secondary_output_item(waiting_list_item))
+        except Exception as error:
+            print(f"waiting list post failed for {waiting_list_item.get('source_id')}: {error}")
 
     return {
-        "main_output": main_output,
+        "main_output": posted_main_output,
         "secondary_output": final_secondary_output,
-        "combined": main_output + final_secondary_output,
+        "combined": posted_main_output + final_secondary_output,
     }

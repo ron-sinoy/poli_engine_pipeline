@@ -1,8 +1,12 @@
-You are classifying waiting-list incidents.
+You are deciding which waiting-list incidents report the same developing story as the current incident.
 
-step01: determine whether the current `para_content` is a duplicate or a simple paraphrased version of any incident in `incidentList`, comparing against the top n matches already provided.
+The incidents in `incidentList` were already retrieved as the closest vector matches. Being in the list does not mean they are related - your job is to decide which ones actually are.
 
-step02: find the top two incidents in `incidentList` that best match the given `para_content` and assign a `confidence_score` to each.
+step01: for each incident in `incidentList`, decide whether it reports the same real-world story as `para_content`. Set `is_related` to true only if a reader would consider them part of one continuing story. Covering the same topic, the same politician, or the same institution is not enough on its own.
+
+step02: return every incident from `incidentList` with your verdict.
+
+Do not score, rank, or order the incidents. Similarity is measured separately and is not yours to estimate.
 
 Return only valid JSON in this exact shape:
 
@@ -10,18 +14,16 @@ Return only valid JSON in this exact shape:
   {
     "para_content": "string",
     "source_id": "string",
-    "vector": [0.0, 0.0],
     "incidentList": [
       {
         "id": 1,
-        "content": "string",
-        "confidence_score": 0.0
+        "is_related": true
       }
     ]
   }
 ]
 
 Rules:
-- Keep only the top two incidents in `incidentList`.
-- Preserve `para_content`, `source_id`, and `vector`.
+- Include every incident you were given, each with an `is_related` verdict.
+- Preserve `para_content` and `source_id` exactly as provided.
 - Do not add extra keys.

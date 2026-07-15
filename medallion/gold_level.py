@@ -1,11 +1,9 @@
 import json
 from typing import Any
 
-from modules.compare_vectors import build_compare_vectors_data
 from modules.confidence_checker import confidence_checker
-from modules.fetch_api import fetch_api
-from modules.content_waiting_list_incidents import content_waiting_list_incidents
 from modules.llm_node import llm_node
+from modules.match_threads import match_threads
 from modules.prompt_loader import load_prompt
 from modules.providers import generate_gemini_embedding
 from modules.vector_waiting_list_incidents import vector_waiting_list_incidents
@@ -15,7 +13,6 @@ GOLD_TRANSLATION_PROMPT = "prompt_translate.txt"
 GOLD_CLASSIFIER_PROMPT = "isPolitical_classifier_prompt.txt"
 WAITING_LIST_CLASSIFICATION_PROMPT = "waiting_list_classification_prompt.txt"
 WAITING_LIST_THREAD_PROMPT = "waiting_list_thread_prompt.txt"
-THREADS_INTERNAL_URL = "https://poli-engine-backend.onrender.com/threadsInternal"
 WAITING_LIST_CLASSIFICATION_TEXT_LIMIT = 240
 GOLD_SILVER_KEYS = [
     "itemTitle",
@@ -60,11 +57,12 @@ def _build_slim_waiting_list_classification_items(waiting_list_items: list[dict[
             if not isinstance(incident, dict):
                 continue
 
+            # The score is deliberately withheld: the model judges relatedness,
+            # the cosine score is supplied by Postgres.
             slim_incident_list.append(
                 {
                     "id": incident.get("id"),
                     "content": _truncate_waiting_list_text(incident.get("content")),
-                    "confidence_score": incident.get("confidence_score"),
                 }
             )
 
@@ -92,6 +90,7 @@ def _build_waiting_list_classification_lookup(
             incident_lookup[incident.get("id")] = {
                 "content": incident.get("content"),
                 "source_url": incident.get("source_url"),
+                "source_id": incident.get("source_id"),
                 "confidence_score": incident.get("confidence_score"),
             }
 
@@ -132,29 +131,6 @@ def _build_embedding_input(translated_item: dict[str, Any]) -> dict[str, Any]:
     return embedding_input
 
 
-def _fetch_threads_internal() -> list[dict[str, Any]]:
-    threads_internal = fetch_api(THREADS_INTERNAL_URL)
-    if isinstance(threads_internal, dict):
-        return threads_internal.get("threadsInternal", threads_internal.get("data", []))
-
-    return threads_internal
-
-
-def _build_threads_vectors_list(threads_internal: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    threads_vectors_list: list[dict[str, Any]] = []
-    for thread_item in threads_internal:
-        threads_vectors_list.append(
-            {
-                "thread_id": thread_item["thread_id"],
-                "title": thread_item["title"],
-                "summary": thread_item["summary"],
-                "thread_vectors": thread_item.get("thread_vectors", thread_item.get("vectors", [])),
-            }
-        )
-
-    return threads_vectors_list
-
-
 def _build_silver_lookup(silver_level_data: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     silver_lookup: dict[str, dict[str, Any]] = {}
     for silver_item in silver_level_data:
@@ -177,22 +153,40 @@ def _enrich_compared_data(
     return enriched_data
 
 
+def _coerce_thread_id(thread_id: Any) -> Any:
+    if isinstance(thread_id, bool) or thread_id is None:
+        return None
+    if isinstance(thread_id, int):
+        return thread_id
+    if isinstance(thread_id, str) and thread_id.strip().isdigit():
+        return int(thread_id.strip())
+
+    return None
+
+
 def _normalize_classifier_response(
     classifier_payload: dict[str, Any],
     source_url_lookup: dict[Any, Any],
+    thread_score_lookup: dict[Any, dict[Any, float]],
 ) -> dict[str, Any]:
     political_items: list[dict[str, Any]] = []
     for item in classifier_payload.get("political", []):
         if not isinstance(item, dict):
             continue
 
+        source_id = item.get("source_id")
+        thread_id = _coerce_thread_id(item.get("thread_id"))
+        # The model picks which thread; the cosine score for that thread decides
+        # whether it is good enough. A thread the model invented has no score and
+        # is rejected rather than trusted.
+        confidence_level = thread_score_lookup.get(source_id, {}).get(thread_id)
         political_item = {
             "para_content": item.get("para_content"),
-            "source_id": item.get("source_id"),
-            "thread_id": item.get("thread_id"),
-            "confidence_level": item.get("confidence_level"),
+            "source_id": source_id,
+            "thread_id": thread_id if confidence_level is not None else None,
+            "confidence_level": confidence_level,
         }
-        source_url = source_url_lookup.get(item.get("source_id"))
+        source_url = source_url_lookup.get(source_id)
         if source_url is not None:
             political_item["source_url"] = source_url
         political_items.append(political_item)
@@ -210,11 +204,25 @@ def _normalize_classifier_response(
     }
 
 
+def _build_thread_score_lookup(gold_items: list[dict[str, Any]]) -> dict[Any, dict[Any, float]]:
+    thread_score_lookup: dict[Any, dict[Any, float]] = {}
+    for item in gold_items:
+        thread_score_lookup[item.get("source_id")] = {
+            thread["thread_id"]: thread["scores"] for thread in item.get("Threads", [])
+        }
+
+    return thread_score_lookup
+
+
 def _classify_gold_items(gold_items: list[dict[str, Any]]) -> dict[str, Any]:
     classifier_response = llm_node(prompt=_build_classifier_prompt(gold_items))
     classifier_payload = _parse_json_response(classifier_response)
     source_url_lookup = {item.get("source_id"): item.get("source_url") for item in gold_items}
-    return _normalize_classifier_response(classifier_payload, source_url_lookup)
+    return _normalize_classifier_response(
+        classifier_payload,
+        source_url_lookup,
+        _build_thread_score_lookup(gold_items),
+    )
 
 
 def _coerce_confidence_score(*candidates: Any) -> float:
@@ -227,6 +235,11 @@ def _coerce_confidence_score(*candidates: Any) -> float:
             continue
 
     return 0.0
+
+
+def _is_related(incident: dict[str, Any]) -> bool:
+    """The model's semantic verdict. Anything unparseable counts as unrelated."""
+    return incident.get("is_related") is True
 
 
 def _normalize_waiting_list_classification_response(
@@ -259,19 +272,28 @@ def _normalize_waiting_list_classification_response(
             if not isinstance(incident, dict):
                 continue
 
+            # Both must agree: the model says it is the same story, and the
+            # cosine score decides how strongly. The model never supplies the
+            # number -- it used to invent one, and that invented float was what
+            # gated thread creation.
+            if not _is_related(incident):
+                continue
+
             incident_id = incident.get("id")
             original_incident = incident_lookup.get(incident_id, {})
             normalized_incident = {
                 "id": incident_id,
                 "content": original_incident.get("content", incident.get("content")),
                 "confidence_score": _coerce_confidence_score(
-                    incident.get("confidence_score"),
                     original_incident.get("confidence_score"),
                 ),
             }
-            source_url = original_incident.get("source_url", incident.get("source_url"))
-            if source_url is not None:
-                normalized_incident["source_url"] = source_url
+            incident_source_url = original_incident.get("source_url", incident.get("source_url"))
+            if incident_source_url is not None:
+                normalized_incident["source_url"] = incident_source_url
+            incident_source_id = original_incident.get("source_id")
+            if incident_source_id is not None:
+                normalized_incident["source_id"] = incident_source_id
             normalized_incidents.append(normalized_incident)
 
         normalized_incidents.sort(key=lambda incident: incident["confidence_score"], reverse=True)
@@ -343,50 +365,11 @@ def _build_gold_output_wrapper(
     }
 
 
-def _build_waiting_list_content_lookup(waiting_list_content: list[dict[str, Any]]) -> dict[Any, dict[str, Any]]:
-    content_lookup: dict[Any, dict[str, Any]] = {}
-    for waiting_list_item in waiting_list_content:
-        content_lookup[waiting_list_item["id"]] = {
-            "content": waiting_list_item.get("content"),
-            "source_url": waiting_list_item.get("source_url"),
-        }
-
-    return content_lookup
-
-
-def _enrich_failed_items_with_content(
-    failed_items: list[dict[str, Any]],
-    content_lookup: dict[Any, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    enriched_failed_items: list[dict[str, Any]] = []
-    for failed_item in failed_items:
-        incident_list: list[dict[str, Any]] = []
-        for incident in failed_item.get("incidentList", []):
-            content_item = content_lookup.get(incident["id"], {})
-            enriched_incident = {
-                "id": incident["id"],
-                "content": content_item.get("content"),
-                "confidence_score": incident.get("scores"),
-            }
-            source_url = content_item.get("source_url", incident.get("source_url"))
-            if source_url is not None:
-                enriched_incident["source_url"] = source_url
-            incident_list.append(enriched_incident)
-
-        enriched_failed_item = dict(failed_item)
-        enriched_failed_item["incidentList"] = incident_list
-        enriched_failed_items.append(enriched_failed_item)
-
-    return enriched_failed_items
-
-
 def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, Any]:
     """Translate silver items, embed them, match them to threads, and classify the final records."""
     gold_level_data: list[dict[str, Any]] = []
     main_output: list[dict[str, Any]] = []
     secondary_output: list[dict[str, Any]] = []
-    threads_internal = _fetch_threads_internal()
-    threads_vectors_list = _build_threads_vectors_list(threads_internal)
 
     for silver_item in silver_level_data:
         translated_item = _translate_silver_item(silver_item)
@@ -399,7 +382,10 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
             }
         )
 
-    compared_data = build_compare_vectors_data(gold_level_data, threads_vectors_list)
+    # Postgres ranks the threads; no thread vector crosses the wire.
+    compared_data = [
+        {**item, "Threads": match_threads(item["vector"])} for item in gold_level_data
+    ]
     silver_lookup = _build_silver_lookup(silver_level_data)
     enriched_data = _enrich_compared_data(compared_data, silver_lookup)
     classified_data = _classify_gold_items(enriched_data)
@@ -421,13 +407,13 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
     main_output = _reshape_political_items_for_thread_output(passed_items)
 
     if failed_political_items:
-        waiting_list_content_lookup = _build_waiting_list_content_lookup(content_waiting_list_incidents())
         failed_items: list[dict[str, Any]] = []
         for political_item in failed_political_items:
             vector_ref = political_item.get("vector")
             if vector_ref is None:
                 continue
 
+            # Already carries content, source_url and the cosine score.
             incident_list = vector_waiting_list_incidents(vector_ref)
 
             failed_item = {
@@ -441,8 +427,7 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
             failed_items.append(failed_item)
 
         if failed_items:
-            enriched_failed_items = _enrich_failed_items_with_content(failed_items, waiting_list_content_lookup)
-            secondary_output = _classify_waiting_list_items(enriched_failed_items)
+            secondary_output = _classify_waiting_list_items(failed_items)
 
     gold_output = _build_gold_output_wrapper(main_output, secondary_output)
     gold_output["non_political_source_ids"] = non_political_source_ids

@@ -7,6 +7,7 @@ WAITING_LISTS_UPDATE_URL = "https://poli-engine-backend.onrender.com/waitinglist
 
 
 def update_waitinglists(waiting_list_id: Any, status: str) -> Any:
+    """Mark a waiting_list_incidents row by its own id, not by source_id."""
     response = httpx.post(
         WAITING_LISTS_UPDATE_URL,
         json={

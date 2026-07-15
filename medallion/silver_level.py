@@ -1,6 +1,6 @@
 from typing import Any
 
-from modules.check_db import check_db, get_source_ids
+from modules.check_db import check_db, get_seen_source_ids
 from modules.filter_json import filter_json_keys, filter_json_values
 from modules.insert_db import insert_db
 from modules.source_id import relabel_source_id
@@ -19,10 +19,8 @@ SILVER_KEYS = [
 ]
 
 
-def build_silver_level_data(bronze_level_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    silver_level_data: list[dict[str, Any]] = []
-    source_ids = get_source_ids()
-
+def _relabel_candidates(bronze_level_data: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
+    candidates: list[tuple[str, dict[str, Any]]] = []
     for item in bronze_level_data:
         if not filter_json_values(item, "elementType", [0, 1]):
             continue
@@ -34,8 +32,21 @@ def build_silver_level_data(bronze_level_data: list[dict[str, Any]]) -> list[dic
             continue
 
         source_name = item["source"]
-        relabeled_item = relabel_source_id(source_name, item)
-        if check_db(source_ids, relabeled_item["source_id"]):
+        candidates.append((source_name, relabel_source_id(source_name, item)))
+
+    return candidates
+
+
+def build_silver_level_data(bronze_level_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    silver_level_data: list[dict[str, Any]] = []
+
+    # Relabel first so the whole batch can be checked against the backend in one
+    # request instead of one per article.
+    candidates = _relabel_candidates(bronze_level_data)
+    seen_source_ids = get_seen_source_ids([item["source_id"] for _, item in candidates])
+
+    for source_name, relabeled_item in candidates:
+        if check_db(seen_source_ids, relabeled_item["source_id"]):
             continue
 
         relabeled_item["itemDetailURL"] = complete_url(source_name, relabeled_item["itemDetailURL"])

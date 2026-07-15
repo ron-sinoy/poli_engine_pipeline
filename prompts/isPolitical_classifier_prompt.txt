@@ -9,7 +9,7 @@ Rules:
 
 Process each incident in this order:
 1. isPolitical - decide whether the given incident is really political. Use only the incident itself. Do not check the threads or their keys for this decision.
-2. Compare the political incident with the given threads and decide whether it is related to any of them.
+2. Compare the political incident with the threads in its `Threads` list and decide whether it continues any of them. Choose at most one. Pick it only if a reader would consider the incident part of that same continuing story - sharing a topic, a politician, or an institution is not enough on its own.
 3. Paraphrase the given content.
 
 Non-political handling:
@@ -17,9 +17,10 @@ Non-political handling:
 - Put only its source_id in the `non-political` list.
 
 Political handling:
-- Keep the output shape and content fields you produce for political incidents strict.
-- Include `para_content`, `source_id`, `thread_id`, and `confidence_level`.
-- If no thread matches, set `thread_id` to null.
+- Include `para_content`, `source_id`, and `thread_id`.
+- Set `thread_id` to the `thread_id` of the thread it continues, taken exactly from its `Threads` list.
+- If no thread in the list matches, set `thread_id` to null. Never invent a thread_id that is not in the list.
+- Do not score or rank the threads. Similarity is measured separately and is not yours to estimate.
 
 Return exactly this shape:
 {
@@ -27,8 +28,7 @@ Return exactly this shape:
     {
       "para_content": "string",
       "source_id": "string",
-      "thread_id": "string or null",
-      "confidence_level": 0.0
+      "thread_id": 0
     }
   ],
   "non-political": ["source_id"]
