@@ -1,0 +1,17 @@
+Identify which politicians from the roster are involved in the given incident.
+
+The incident text is in Malayalam. The roster names are in English. Match on who the text is about, not on spelling.
+
+Rules:
+- Return valid JSON only. No explanations, no markdown, no extra keys.
+- Return only `person_id` values that appear in the roster. Never invent an id.
+- Include a person only if the incident is actually about them, or they act, speak, or are named in it. Do not include someone merely because they belong to a party or institution the incident mentions.
+- If you are unsure about a person, leave them out.
+- If no roster politician is involved, return an empty list.
+
+Return exactly this shape:
+{
+  "person_ids": [1, 2]
+}
+
+Input:

@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+from modules.extract_persons import extract_persons, fetch_person_roster
 from modules.llm_node import llm_node
 from modules.post_incidents import post_incidents
 from modules.post_threads import post_threads
@@ -94,16 +95,34 @@ def _create_threads_from_waiting_list_item(waiting_list_item: dict[str, Any]) ->
     return _attach_thread_ids(thread_candidates, thread_id)
 
 
-def _post_incidents_and_complete_source_ids(postable_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _post_incident_with_persons(
+    thread_id: Any,
+    content: str,
+    source_url: Any,
+    roster: list[dict[str, Any]],
+) -> None:
+    """The only way an incident reaches the backend.
+
+    Every incident goes through here on both routing paths, so person links are
+    recorded unconditionally rather than depending on which path was taken.
+    """
+    post_incidents(thread_id, content, source_url, extract_persons(content, roster))
+
+
+def _post_incidents_and_complete_source_ids(
+    postable_items: list[dict[str, Any]],
+    roster: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     posted_items: list[dict[str, Any]] = []
     for postable_item in postable_items:
         # One unpostable item must not strand the rest of the batch at
         # "processing" -- that is what left 4060 rows stuck and re-processed.
         try:
-            post_incidents(
+            _post_incident_with_persons(
                 postable_item["thread_id"],
                 postable_item["content"],
                 postable_item.get("source_url"),
+                roster,
             )
             update_db(postable_item["source_id"], "completed")
         except Exception as error:
@@ -115,8 +134,11 @@ def _post_incidents_and_complete_source_ids(postable_items: list[dict[str, Any]]
     return posted_items
 
 
-def _post_main_output(main_output: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return _post_incidents_and_complete_source_ids(main_output)
+def _post_main_output(
+    main_output: list[dict[str, Any]],
+    roster: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return _post_incidents_and_complete_source_ids(main_output, roster)
 
 
 def _update_non_political_source_ids(non_political_source_ids: list[str]) -> None:
@@ -124,15 +146,24 @@ def _update_non_political_source_ids(non_political_source_ids: list[str]) -> Non
         update_db(source_id, "filtered")
 
 
-def _post_secondary_thread_items(thread_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _post_secondary_thread_items(
+    thread_items: list[dict[str, Any]],
+    roster: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     # first candidate is the news item (real source_id); the rest are waiting-list incidents
     source_item, *waiting_list_incident_items = thread_items
-    post_incidents(source_item["thread_id"], source_item["content"], source_item.get("source_url"))
+    _post_incident_with_persons(
+        source_item["thread_id"], source_item["content"], source_item.get("source_url"), roster
+    )
     update_db(source_item["source_id"], "completed")
     posted_items = [source_item]
 
     for incident_item in waiting_list_incident_items:
-        post_incidents(incident_item["thread_id"], incident_item["content"], incident_item.get("source_url"))
+        # A promoted row carries only its stored content, so its people are
+        # extracted here at promotion time rather than when it was queued.
+        _post_incident_with_persons(
+            incident_item["thread_id"], incident_item["content"], incident_item.get("source_url"), roster
+        )
         # Retire the waiting-list row so it cannot spawn this thread again, and
         # complete the article it came from.
         update_waitinglists(incident_item["waiting_list_id"], "completed")
@@ -143,10 +174,13 @@ def _post_secondary_thread_items(thread_items: list[dict[str, Any]]) -> list[dic
     return posted_items
 
 
-def _post_secondary_output_item(waiting_list_item: dict[str, Any]) -> list[dict[str, Any]]:
+def _post_secondary_output_item(
+    waiting_list_item: dict[str, Any],
+    roster: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     if waiting_list_confidence_checker([waiting_list_item]):
         created_thread_items = _create_threads_from_waiting_list_item(waiting_list_item)
-        return _post_secondary_thread_items(created_thread_items)
+        return _post_secondary_thread_items(created_thread_items, roster)
 
     post_waitinglists(
         waiting_list_item["para_content"],
@@ -164,12 +198,17 @@ def post_gold_level_data(gold_level_data: dict[str, Any]) -> dict[str, list[dict
     non_political_source_ids = list(gold_level_data.get("non_political_source_ids", []))
 
     _update_non_political_source_ids(non_political_source_ids)
-    posted_main_output = _post_main_output(main_output)
+
+    # Fetched once and threaded through both paths; it is the same for every
+    # incident in the run.
+    roster = fetch_person_roster()
+
+    posted_main_output = _post_main_output(main_output, roster)
 
     final_secondary_output: list[dict[str, Any]] = []
     for waiting_list_item in secondary_output:
         try:
-            final_secondary_output.extend(_post_secondary_output_item(waiting_list_item))
+            final_secondary_output.extend(_post_secondary_output_item(waiting_list_item, roster))
         except Exception as error:
             print(f"waiting list post failed for {waiting_list_item.get('source_id')}: {error}")
 
