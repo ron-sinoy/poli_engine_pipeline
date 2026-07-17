@@ -51,8 +51,8 @@ def build_silver_level_data(bronze_level_data: list[dict[str, Any]]) -> list[dic
 
     for source_name, relabeled_item in candidates:
         print(f"DEBUG: processing {relabeled_item.get('source_id')}")
-        if check_db(seen_source_ids, relabeled_item["source_id"]):
-            continue
+        # if check_db(seen_source_ids, relabeled_item["source_id"]):
+        #     continue
 
         relabeled_item["itemDetailURL"] = complete_url(source_name, relabeled_item["itemDetailURL"])
         relabeled_item["source_url"] = relabeled_item["itemDetailURL"]
