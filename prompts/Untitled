@@ -1,9 +1,0 @@
-You will be given a JSON array of news items and a cache object containing thread and person details. Your tasks are:
-
-For each item in the input JSON, identify all persons mentioned in the content by comparing with the persons data in the cache. Extract their person_id values.
-Paraphrase the content of each item in Malayalam.
-Check the cache for existing thread data. Do not duplicate entries that already exist. Only include new data.
-Return a top-level JSON array. Return nothing else — no explanation, no markdown, no wrapper object.
-
-Use this exact structure:
-[{"thread_id": <thread_id from input>, "body": <Malayalam paraphrased content>, "source_url": <itemDetailURL from input>, "persons_involved": <array of person_id integers, e.g. [0, 5, 6]>}]

@@ -1,6 +1,0 @@
-1. Find which all first level nested objects content value is political related, also it should be related to kerala somehow, or national news. If not political, delete the whole object.
-2. Then compare each remaining object with the given threads_list by looking at thread title and summary, and decide which existing thread it is related to.
-3. For every kept object, also include matched_existing_thread.
-4. If an object is related to an existing thread, set matched_existing_thread to true and set thread_id to that exact thread_id from threads_list.
-5. If an object is not related to any existing thread, set matched_existing_thread to false and set thread_id to null. Never use thread_id 1 as a fallback.
-6. Return JSON only. Return an array, and for each kept object include matched_existing_thread, thread_id, itemTitle, and contentID.
