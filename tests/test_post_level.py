@@ -40,13 +40,6 @@ class TestPostLevel(unittest.TestCase):
                             "source_url": "https://example.com/waiting-5",
                             "confidence_score": 0.93,
                         },
-                        {
-                            "id": 6,
-                            "source_id": "mt_#waiting-6",
-                            "content": "Waiting list content 6",
-                            "source_url": "https://example.com/waiting-6",
-                            "confidence_score": 0.81,
-                        },
                     ],
                 }
             ],
@@ -66,18 +59,14 @@ class TestPostLevel(unittest.TestCase):
                 "content": "Waiting list content 5",
                 "source_url": "https://example.com/waiting-5",
             },
-            {
-                "waiting_list_id": 6,
-                "source_id": "mt_#waiting-6",
-                "thread_id": 11,
-                "content": "Waiting list content 6",
-                "source_url": "https://example.com/waiting-6",
-            },
         ]
         expected_output = {
             "main_output": gold_level_data["main_output"],
             "secondary_output": expected_secondary_output,
             "combined": gold_level_data["main_output"] + expected_secondary_output,
+            "directly_appended_count": len(gold_level_data["main_output"]),
+            "new_threads_created": 1,
+            "waiting_listed_count": 0,
         }
 
         roster_patch, extract_patch = stub_persons()
@@ -108,35 +97,27 @@ class TestPostLevel(unittest.TestCase):
             }
         )
         post_threads.assert_called_once_with("മലയാളം തലക്കെട്ട്", "English summary", [0.9, 0.8])
-        # The thread is born holding all three incidents that justified it.
+        # The thread is born holding the article and the single incident that justified it.
         post_incidents.assert_has_calls(
             [
                 call("thread-a", "Paraphrased incident", "https://example.com/main", [7]),
                 call(11, "Waiting list incident", "https://example.com/secondary", [7]),
                 call(11, "Waiting list content 5", "https://example.com/waiting-5", [7]),
-                call(11, "Waiting list content 6", "https://example.com/waiting-6", [7]),
             ]
         )
-        self.assertEqual(post_incidents.call_count, 4)
+        self.assertEqual(post_incidents.call_count, 3)
         update_db.assert_has_calls(
             [
                 call("mt_#other", "filtered"),
                 call("mt_#sample", "completed"),
                 call("mt_#sample-secondary", "completed"),
                 call("mt_#waiting-5", "completed"),
-                call("mt_#waiting-6", "completed"),
             ]
         )
-        self.assertEqual(update_db.call_count, 5)
+        self.assertEqual(update_db.call_count, 4)
         # Consumed rows are retired by their waiting-list id so they cannot
         # spawn the same thread again on the next run.
-        update_waitinglists.assert_has_calls(
-            [
-                call(5, "completed"),
-                call(6, "completed"),
-            ]
-        )
-        self.assertEqual(update_waitinglists.call_count, 2)
+        update_waitinglists.assert_called_once_with(5, "completed")
         post_waitinglists.assert_not_called()
 
     def test_post_gold_level_data_posts_low_confidence_waiting_list_items(self) -> None:
@@ -180,6 +161,9 @@ class TestPostLevel(unittest.TestCase):
                 "main_output": [],
                 "secondary_output": [],
                 "combined": [],
+                "directly_appended_count": 0,
+                "new_threads_created": 0,
+                "waiting_listed_count": 1,
             },
         )
         waiting_list_confidence_checker.assert_called_once_with([gold_level_data["secondary_output"][0]])
@@ -270,6 +254,103 @@ class TestPostLevel(unittest.TestCase):
             call("mt_#current", "completed"),
             call("mt_#waiting-5", "completed"),
         ])
+
+    def test_secondary_thread_retries_once_then_posts_on_second_attempt(self) -> None:
+        gold_level_data = {
+            "main_output": [],
+            "secondary_output": [{
+                "para_content": "Current incident",
+                "source_id": "mt_#current",
+                "source_url": "https://example.com/current",
+                "vector": [0.1, 0.2],
+                "incidentList": [{
+                    "id": 5,
+                    "source_id": "mt_#waiting-5",
+                    "content": "Waiting incident",
+                    "source_url": "https://example.com/waiting-5",
+                    "confidence_score": 0.9,
+                }],
+            }],
+            "non_political_source_ids": [],
+        }
+
+        roster_patch, extract_patch = stub_persons()
+        with roster_patch, extract_patch:
+          with patch("medallion.post_level.waiting_list_confidence_checker", return_value=True):
+            with patch("medallion.post_level._create_threads_from_waiting_list_item", return_value=[
+                {"source_id": "mt_#current", "thread_id": 11, "content": "Current incident", "source_url": "https://example.com/current"},
+                {"waiting_list_id": 5, "source_id": "mt_#waiting-5", "thread_id": 11, "content": "Waiting incident", "source_url": "https://example.com/waiting-5"},
+            ]):
+                # Fails once for the waiting-list incident, then succeeds on retry.
+                with patch(
+                    "medallion.post_level.post_incidents",
+                    side_effect=[None, RuntimeError("HTTP 500"), None],
+                ) as post_incidents:
+                    with patch("medallion.post_level.update_db") as update_db:
+                        with patch("medallion.post_level.update_waitinglists") as update_waitinglists:
+                            result = post_gold_level_data(gold_level_data)
+
+        self.assertEqual(len(result["secondary_output"]), 2, "the retry should recover the item")
+        self.assertEqual(post_incidents.call_count, 3, "one clean post plus one failed attempt plus one retry")
+        update_waitinglists.assert_called_once_with(5, "completed")
+
+    def test_secondary_thread_drops_incident_after_two_failures_without_stranding_others(self) -> None:
+        gold_level_data = {
+            "main_output": [],
+            "secondary_output": [{
+                "para_content": "Current incident",
+                "source_id": "mt_#current",
+                "source_url": "https://example.com/current",
+                "vector": [0.1, 0.2],
+                "incidentList": [
+                    {
+                        "id": 5,
+                        "source_id": "mt_#waiting-5",
+                        "content": "Doomed waiting incident",
+                        "source_url": "https://example.com/waiting-5",
+                        "confidence_score": 0.9,
+                    },
+                    {
+                        "id": 6,
+                        "source_id": "mt_#waiting-6",
+                        "content": "Fine waiting incident",
+                        "source_url": "https://example.com/waiting-6",
+                        "confidence_score": 0.9,
+                    },
+                ],
+            }],
+            "non_political_source_ids": [],
+        }
+
+        roster_patch, extract_patch = stub_persons()
+        with roster_patch, extract_patch:
+          with patch("medallion.post_level.waiting_list_confidence_checker", return_value=True):
+            with patch("medallion.post_level._create_threads_from_waiting_list_item", return_value=[
+                {"source_id": "mt_#current", "thread_id": 11, "content": "Current incident", "source_url": "https://example.com/current"},
+                {"waiting_list_id": 5, "source_id": "mt_#waiting-5", "thread_id": 11, "content": "Doomed waiting incident", "source_url": "https://example.com/waiting-5"},
+                {"waiting_list_id": 6, "source_id": "mt_#waiting-6", "thread_id": 11, "content": "Fine waiting incident", "source_url": "https://example.com/waiting-6"},
+            ]):
+                # source_item posts clean; waiting-list id 5 fails twice (dropped);
+                # waiting-list id 6 posts clean.
+                with patch(
+                    "medallion.post_level.post_incidents",
+                    side_effect=[None, RuntimeError("HTTP 500"), RuntimeError("HTTP 500"), None],
+                ) as post_incidents:
+                    with patch("medallion.post_level.update_db") as update_db:
+                        with patch("medallion.post_level.update_waitinglists") as update_waitinglists:
+                            result = post_gold_level_data(gold_level_data)
+
+        # The doomed incident is dropped, but the source item and the other
+        # waiting-list incident still land -- no exception, nothing stranded.
+        posted_source_ids = {item["source_id"] for item in result["secondary_output"]}
+        self.assertEqual(posted_source_ids, {"mt_#current", "mt_#waiting-6"})
+        self.assertEqual(post_incidents.call_count, 4)
+        update_waitinglists.assert_called_once_with(6, "completed")
+        update_db.assert_has_calls([
+            call("mt_#current", "completed"),
+            call("mt_#waiting-6", "completed"),
+        ])
+        assert call("mt_#waiting-5", "completed") not in update_db.mock_calls
 
 
 class TestPersonsAreAlwaysRecorded(unittest.TestCase):

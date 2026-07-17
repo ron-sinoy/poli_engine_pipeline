@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Any
 
 from modules.extract_persons import extract_persons, fetch_person_roster
@@ -14,6 +15,12 @@ from modules.waiting_list_confidence_checker import waiting_list_confidence_chec
 
 
 WAITING_LIST_THREAD_PROMPT = "waiting_list_thread_prompt.txt"
+PARAMS_PATH = Path(__file__).resolve().parent.parent / "params.json"
+
+
+def _required_waiting_list_matches() -> int:
+    params = json.loads(PARAMS_PATH.read_text(encoding="utf-8"))
+    return int(params["required_waiting_list_matches"])
 
 
 def _parse_json_response(response_text: str) -> dict[str, Any]:
@@ -55,7 +62,7 @@ def _reshape_waiting_list_item_for_thread_creation(waiting_list_item: dict[str, 
         }
     ]
 
-    for incident in waiting_list_item.get("incidentList", [])[:2]:
+    for incident in waiting_list_item.get("incidentList", [])[:_required_waiting_list_matches()]:
         thread_candidates.append(
             {
                 "waiting_list_id": incident["id"],
@@ -109,6 +116,25 @@ def _post_incident_with_persons(
     post_incidents(thread_id, content, source_url, extract_persons(content, roster))
 
 
+def _post_incident_with_retry(
+    thread_id: Any,
+    content: str,
+    source_url: Any,
+    roster: list[dict[str, Any]],
+    *,
+    label: str,
+) -> bool:
+    """Try once, retry once on failure, then give up. Returns whether it posted."""
+    for attempt in (1, 2):
+        try:
+            _post_incident_with_persons(thread_id, content, source_url, roster)
+            return True
+        except Exception as error:
+            print(f"post attempt {attempt} failed for {label}: {error}")
+
+    return False
+
+
 def _post_incidents_and_complete_source_ids(
     postable_items: list[dict[str, Any]],
     roster: list[dict[str, Any]],
@@ -152,18 +178,32 @@ def _post_secondary_thread_items(
 ) -> list[dict[str, Any]]:
     # first candidate is the news item (real source_id); the rest are waiting-list incidents
     source_item, *waiting_list_incident_items = thread_items
-    _post_incident_with_persons(
-        source_item["thread_id"], source_item["content"], source_item.get("source_url"), roster
-    )
-    update_db(source_item["source_id"], "completed")
-    posted_items = [source_item]
+    posted_items: list[dict[str, Any]] = []
+
+    if _post_incident_with_retry(
+        source_item["thread_id"],
+        source_item["content"],
+        source_item.get("source_url"),
+        roster,
+        label=source_item["source_id"],
+    ):
+        update_db(source_item["source_id"], "completed")
+        posted_items.append(source_item)
 
     for incident_item in waiting_list_incident_items:
         # A promoted row carries only its stored content, so its people are
         # extracted here at promotion time rather than when it was queued.
-        _post_incident_with_persons(
-            incident_item["thread_id"], incident_item["content"], incident_item.get("source_url"), roster
-        )
+        # One unpostable incident must not strand the thread the others were
+        # confirmed against -- see _post_incidents_and_complete_source_ids.
+        if not _post_incident_with_retry(
+            incident_item["thread_id"],
+            incident_item["content"],
+            incident_item.get("source_url"),
+            roster,
+            label=incident_item.get("source_id", incident_item.get("waiting_list_id")),
+        ):
+            continue
+
         # Retire the waiting-list row so it cannot spawn this thread again, and
         # complete the article it came from.
         update_waitinglists(incident_item["waiting_list_id"], "completed")
@@ -177,10 +217,12 @@ def _post_secondary_thread_items(
 def _post_secondary_output_item(
     waiting_list_item: dict[str, Any],
     roster: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], str]:
+    """Returns (posted_items, outcome), outcome is 'thread_created' or 'waiting_listed'."""
     if waiting_list_confidence_checker([waiting_list_item]):
         created_thread_items = _create_threads_from_waiting_list_item(waiting_list_item)
-        return _post_secondary_thread_items(created_thread_items, roster)
+        posted_items = _post_secondary_thread_items(created_thread_items, roster)
+        return posted_items, "thread_created"
 
     post_waitinglists(
         waiting_list_item["para_content"],
@@ -189,10 +231,10 @@ def _post_secondary_output_item(
         waiting_list_item.get("source_id"),
     )
     update_db(waiting_list_item["source_id"], "completed")
-    return []
+    return [], "waiting_listed"
 
 
-def post_gold_level_data(gold_level_data: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+def post_gold_level_data(gold_level_data: dict[str, Any]) -> dict[str, Any]:
     main_output = list(gold_level_data.get("main_output", []))
     secondary_output = list(gold_level_data.get("secondary_output", []))
     non_political_source_ids = list(gold_level_data.get("non_political_source_ids", []))
@@ -206,14 +248,26 @@ def post_gold_level_data(gold_level_data: dict[str, Any]) -> dict[str, list[dict
     posted_main_output = _post_main_output(main_output, roster)
 
     final_secondary_output: list[dict[str, Any]] = []
+    new_threads_created = 0
+    waiting_listed_count = 0
     for waiting_list_item in secondary_output:
         try:
-            final_secondary_output.extend(_post_secondary_output_item(waiting_list_item, roster))
+            posted_items, outcome = _post_secondary_output_item(waiting_list_item, roster)
         except Exception as error:
             print(f"waiting list post failed for {waiting_list_item.get('source_id')}: {error}")
+            continue
+
+        final_secondary_output.extend(posted_items)
+        if outcome == "thread_created":
+            new_threads_created += 1
+        else:
+            waiting_listed_count += 1
 
     return {
         "main_output": posted_main_output,
         "secondary_output": final_secondary_output,
         "combined": posted_main_output + final_secondary_output,
+        "directly_appended_count": len(posted_main_output),
+        "new_threads_created": new_threads_created,
+        "waiting_listed_count": waiting_listed_count,
     }

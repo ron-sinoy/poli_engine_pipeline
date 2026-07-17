@@ -22,8 +22,4 @@ def build_bronze_level_data(sources: list[dict[str, Any]]) -> list[dict[str, Any
 
             bronze_level_data = merge_data(bronze_level_data, cleaned_payload)
 
-    print(
-        "DEBUG: Bronze source IDs =",
-        [f"mt_#{item['contentID']}" for item in bronze_level_data if item["source"] == "mathrubhumi"],
-    )
     return bronze_level_data

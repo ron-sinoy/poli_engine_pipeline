@@ -1,5 +1,6 @@
 {
   "confidence_level": 0.8,
   "count_level_primary_threads": 3,
-  "count_level_waiting_list_incidents": 3
+  "count_level_waiting_list_incidents": 3,
+  "required_waiting_list_matches": 1
 }

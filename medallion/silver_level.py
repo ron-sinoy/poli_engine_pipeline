@@ -23,15 +23,12 @@ def _relabel_candidates(bronze_level_data: list[dict[str, Any]]) -> list[tuple[s
     candidates: list[tuple[str, dict[str, Any]]] = []
     for item in bronze_level_data:
         if not filter_json_values(item,"elementType", [0, 1]):
-            print("not of required type 0 or 1")
             continue
 
         if not filter_json_values(item, "sectionTitle", ["News"]):
-            print("not of required type news")
             continue
 
         if not filter_json_values(item, "subSectionTitle", ["India", "Kerala"]):
-            print(",not india nor kerala")
             continue
 
         source_name = item["source"]
@@ -46,13 +43,11 @@ def build_silver_level_data(bronze_level_data: list[dict[str, Any]]) -> list[dic
     # Relabel first so the whole batch can be checked against the backend in one
     # request instead of one per article.
     candidates = _relabel_candidates(bronze_level_data)
-    print(f"DEBUG: candidates = {len(candidates)}")
     seen_source_ids = get_seen_source_ids([item["source_id"] for _, item in candidates])
 
     for source_name, relabeled_item in candidates:
-        print(f"DEBUG: processing {relabeled_item.get('source_id')}")
-        # if check_db(seen_source_ids, relabeled_item["source_id"]):
-        #     continue
+        if check_db(seen_source_ids, relabeled_item["source_id"]):
+            continue
 
         relabeled_item["itemDetailURL"] = complete_url(source_name, relabeled_item["itemDetailURL"])
         relabeled_item["source_url"] = relabeled_item["itemDetailURL"]
@@ -61,8 +56,4 @@ def build_silver_level_data(bronze_level_data: list[dict[str, Any]]) -> list[dic
         filtered_item = filter_json_keys(relabeled_item, SILVER_KEYS)
         silver_level_data.append(filtered_item)
 
-    print(
-        f"DEBUG: Silver passed count = {len(silver_level_data)}; "
-        f"source IDs = {[item['source_id'] for item in silver_level_data]}"
-    )
     return silver_level_data

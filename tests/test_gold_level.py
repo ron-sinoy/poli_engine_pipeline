@@ -201,13 +201,6 @@ class TestGoldLevel(unittest.TestCase):
                             "source_url": "https://example.com/5",
                             "source_id": "mt_#w5",
                         },
-                        {
-                            "id": 6,
-                            "content": "Waiting list content 6",
-                            "confidence_score": 0.81,
-                            "source_url": "https://example.com/6",
-                            "source_id": "mt_#w6",
-                        },
                     ],
                 }
             ],

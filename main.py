@@ -30,7 +30,14 @@ def main():
 
     # If Empty -> Return to end
     if not silver_level_data:
-        empty_gold_post_data = {"main_output": [], "secondary_output": [], "combined": []}
+        empty_gold_post_data = {
+            "main_output": [],
+            "secondary_output": [],
+            "combined": [],
+            "directly_appended_count": 0,
+            "new_threads_created": 0,
+            "waiting_listed_count": 0,
+        }
         write_json_file(
             PRE_POST_GOLD_RESULTS_PATH,
             {**empty_gold_post_data, "non_political_source_ids": []},
@@ -59,12 +66,9 @@ def write_json_file(path: Path, payload: object) -> None:
 
 
 if __name__ == "__main__":
-    main()
-    print(
-        "results/results_bronze_level.json and "
-        "results/results_silver_level.json and "
-        "results/pre_post_gold_level.json and "
-        "results/main_output_gold.json and "
-        "results/secondary_output_gold.json and "
-        "results/results_gold_level.json created successfully"
-    )
+    bronze_level_data, silver_level_data, gold_post_data = main()
+    print("Run summary:")
+    print(f"  Total bronze: {len(bronze_level_data)}")
+    print(f"  Directly appended to a thread: {gold_post_data.get('directly_appended_count', 0)}")
+    print(f"  New threads created: {gold_post_data.get('new_threads_created', 0)}")
+    print(f"  Waiting listed: {gold_post_data.get('waiting_listed_count', 0)}")

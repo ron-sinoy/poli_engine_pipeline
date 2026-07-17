@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Any
 
 from modules.confidence_checker import confidence_checker
@@ -13,6 +14,13 @@ GOLD_TRANSLATION_PROMPT = "prompt_translate.txt"
 GOLD_CLASSIFIER_PROMPT = "isPolitical_classifier_prompt.txt"
 WAITING_LIST_CLASSIFICATION_PROMPT = "waiting_list_classification_prompt.txt"
 WAITING_LIST_THREAD_PROMPT = "waiting_list_thread_prompt.txt"
+
+PARAMS_PATH = Path(__file__).resolve().parent.parent / "params.json"
+
+
+def _required_waiting_list_matches() -> int:
+    params = json.loads(PARAMS_PATH.read_text(encoding="utf-8"))
+    return int(params["required_waiting_list_matches"])
 WAITING_LIST_CLASSIFICATION_TEXT_LIMIT = 240
 GOLD_SILVER_KEYS = [
     "itemTitle",
@@ -302,7 +310,7 @@ def _normalize_waiting_list_classification_response(
             "para_content": original_waiting_list_item.get("para_content", item.get("para_content")),
             "source_id": source_id,
             "vector": original_waiting_list_item.get("vector", item.get("vector")),
-            "incidentList": normalized_incidents[:2],
+            "incidentList": normalized_incidents[:_required_waiting_list_matches()],
         }
         source_url = original_waiting_list_item.get("source_url", item.get("source_url"))
         if source_url is not None:
