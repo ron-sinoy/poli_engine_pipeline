@@ -370,6 +370,10 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
     gold_level_data: list[dict[str, Any]] = []
     main_output: list[dict[str, Any]] = []
     secondary_output: list[dict[str, Any]] = []
+    print(
+        f"DEBUG: Gold input count = {len(silver_level_data)}; "
+        f"source IDs = {[item['source_id'] for item in silver_level_data]}"
+    )
 
     for silver_item in silver_level_data:
         translated_item = _translate_silver_item(silver_item)
@@ -381,6 +385,11 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
                 "vector": vector,
             }
         )
+
+    print(
+        f"DEBUG: Gold embedded count = {len(gold_level_data)}; "
+        f"source IDs = {[item['source_id'] for item in gold_level_data]}"
+    )
 
     # Postgres ranks the threads; no thread vector crosses the wire.
     compared_data = [
@@ -395,6 +404,14 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
         _extract_political_items(classified_data),
         vector_lookup,
     )
+    print(
+        f"DEBUG: Gold classified political count = {len(political_items)}; "
+        f"source IDs = {[item.get('source_id') for item in political_items]}"
+    )
+    print(
+        f"DEBUG: Gold classified non-political count = {len(non_political_source_ids)}; "
+        f"source IDs = {non_political_source_ids}"
+    )
 
     passed_items: list[dict[str, Any]] = []
     failed_political_items: list[dict[str, Any]] = []
@@ -404,6 +421,14 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
         else:
             failed_political_items.append(political_item)
 
+    print(
+        f"DEBUG: Gold confidence-passed count = {len(passed_items)}; "
+        f"source IDs = {[item.get('source_id') for item in passed_items]}"
+    )
+    print(
+        f"DEBUG: Gold confidence-failed count = {len(failed_political_items)}; "
+        f"source IDs = {[item.get('source_id') for item in failed_political_items]}"
+    )
     main_output = _reshape_political_items_for_thread_output(passed_items)
 
     if failed_political_items:
@@ -429,6 +454,14 @@ def build_gold_level_data(silver_level_data: list[dict[str, Any]]) -> dict[str, 
         if failed_items:
             secondary_output = _classify_waiting_list_items(failed_items)
 
+    print(
+        f"DEBUG: Gold main output count = {len(main_output)}; "
+        f"source IDs = {[item.get('source_id') for item in main_output]}"
+    )
+    print(
+        f"DEBUG: Gold secondary output count = {len(secondary_output)}; "
+        f"source IDs = {[item.get('source_id') for item in secondary_output]}"
+    )
     gold_output = _build_gold_output_wrapper(main_output, secondary_output)
     gold_output["non_political_source_ids"] = non_political_source_ids
     return gold_output

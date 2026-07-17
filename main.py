@@ -38,6 +38,7 @@ def main():
         write_json_file(MAIN_OUTPUT_GOLD_RESULTS_PATH, [])
         write_json_file(SECONDARY_OUTPUT_GOLD_RESULTS_PATH, [])
         write_json_file(GOLD_RESULTS_PATH, [])
+        print("Exited early: Silver level is empty; Gold level was not run.")
         return bronze_level_data, silver_level_data, empty_gold_post_data
 
     # 3.Gold level
