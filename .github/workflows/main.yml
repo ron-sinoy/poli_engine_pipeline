@@ -1,9 +1,8 @@
 name: Run Pipeline
-
 on:
   schedule:
-    # Twice a day: 00:00 and 12:00 UTC.
-    - cron: '0 0,12 * * *'
+    # Once every 3 days at 12:00 UTC
+    - cron: '0 12 */3 * *'
   workflow_dispatch:
 
 jobs:
