@@ -10,7 +10,7 @@ Rules:
 Process each incident in this order:
 1. isPolitical - decide whether the given incident is really political. Use only the incident itself. Do not check the threads or their keys for this decision.
 2. Compare the political incident with the threads in its `Threads` list and decide whether it continues any of them. Choose at most one. Pick it only if a reader would consider the incident part of that same continuing story - sharing a topic, a politician, or an institution is not enough on its own.
-3. Paraphrase the given content in Malayalam. `para_content` must be written in Malayalam even though the input content here is in English.
+3. Paraphrase the given content in Malayalam. `para_content` must always be written in Malayalam, regardless of what language the input content is in. If the input is already in Malayalam, paraphrase it in Malayalam rather than copying it unchanged.
 
 Non-political handling:
 - If the incident is not political, do not perform steps 2 or 3.
